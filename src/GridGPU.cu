@@ -547,10 +547,10 @@ __global__ void copySendAtoms(float4 *xs, float4 *xsMoved,
 {
     int idx = GETIDX();
     OOBDirs dir = boundsLocalGPU.oobInDir(make_float3(xs[idx]));
-    int idxMoved = 0;
-    if (dir != OOBDirs.MMM) {
-        int idxM = atomicAdd(idxMoved, 1);
-        copyToOtherList<float4>(xs, xsMoved(send), idx, idxM);
+    auto adjIdx = partition.getAdjIdx(dir);
+    if (adjIdx != partition.adjRanks.size()) {
+        int idxM = atomicAdd(szMoved[dir], 1);
+        copyToOtherList<float4>(xs, xsMoved(send), idx, dirOff + idxM);
         copyToOtherList<float4>(vs, vsMoved(send), idx, idxM);
         copyToOtherList<float4>(fs, fsMoved(send), idx, idxM);
         copyToOtherList<uint>(ids, idsMoved(send), idx, idxM);
@@ -704,13 +704,14 @@ void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild) {
         }
 
         // copy atoms to moved arrays, and MPI them
+        std::fill(szMoved.data(), szMoved.data() + szMoved.size(), 0);
         copySendAtoms<<<NBLOCK(nAtoms), PERBLOCK>>>(
                     state->gpd.xs(activeIdx), state->gpd.xsMoved(send),
                     state->gpd.vs(activeIdx), state->gpd.vsMoved(send),
                     state->gpd.fs(activeIdx), state->gpd.fsMoved(send),
                     state->gpd.ids(activeIdx), state->gpd.idsMoved(send),
                     state->gpd.qs(activeIdx), state->gpd.qsMoved(send),
-                    idxsMoved, state->boundsLocalGPU);
+                    idxsMoved, szMoved, state->boundsLocalGPU);
         int end = nAtoms;
         for (int i = szTotalSend; i < szTotalRecv; ++i) {
             idxsMoved[i] = end++;
