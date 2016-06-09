@@ -17,21 +17,6 @@ void export_Neighbor();
 
 class Atom {
 public:
-    Vector pos;
-    Vector vel;
-    Vector force;
-    Vector forceLast;
-    //Vector posAtNeighborListing; // can do this elsewhere
-
-    Atom *next;
-    double mass;
-    double q;
-    int type;  // do this here, since otherwise would have to get it from some other array in the heap
-    int id;
-    uint32_t groupTag;
-    std::vector<Neighbor> neighbors;
-    bool isChanged;
-
     Atom()
       : mass(-1), id(0), groupTag(1)
     {   }
@@ -58,13 +43,28 @@ public:
         return id != other.id;
     }
 
+    Vector getPos();
+    void setPos(Vector pos_);
+    
     double kinetic() {
         return 0.5 * mass * vel.lenSqr();
     }
+    
+    Vector pos;
+    Vector vel;
+    Vector force;
+    Vector forceLast;
+    //Vector posAtNeighborListing; // can do this elsewhere
 
-    void setPos(Vector pos_);
+    Atom *next;
+    double mass;
+    double q;
+    int type;  // do this here, since otherwise would have to get it from some other array in the heap
+    int id;
+    uint32_t groupTag;
+    std::vector<Neighbor> neighbors;
+    bool isChanged;
 
-    Vector getPos();
 
 };
 

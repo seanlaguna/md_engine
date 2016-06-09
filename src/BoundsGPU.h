@@ -14,8 +14,12 @@
  * defining the x-, y-, and z- directions of the box. Furthermore, the box can
  * be periodic or fixed in each direction.
  */
-class BoundsGPU {
+class BoundsGPU
+{
 public:
+    /*! \brief Default constructor */
+    BoundsGPU() {};
+
     /*! \brief Constructor
      *
      * \param lo_ Lower values of the boundaries (Point of origin)
@@ -32,17 +36,6 @@ public:
         rectLen = make_float3(sides[0].x, sides[1].y, sides[2].z);
         invRectLen = (float) 1 / rectLen;
     }
-
-    /*! \brief Default constructor */
-    BoundsGPU() {};
-
-    float3 sides[3]; //!< 3 vectors defining the x-, y-, and z- direction
-    float3 rectLen; //!< Length of box in standard coordinates
-    float3 invRectLen; //!< Inverse of the box expansion in standard
-                       //!< coordinates
-    float3 lo; //!< Point of origin
-    float3 periodic; //!< Stores whether box is periodic in x-, y-, and
-                     //!< z-direction
 
     /*! \brief Return an unskewed copy of this box
      *
@@ -63,7 +56,7 @@ public:
      *
      * \todo Trace is identical to rectLen, isn't it?
      */
-    GPUMEMBER float3 trace() {
+    __host__ __device__ float3 trace() {
         return make_float3(sides[0].x, sides[1].y, sides[2].z);
     }
 
@@ -72,7 +65,7 @@ public:
      * \param v %Vector to be wrapped
      * \return Copy of the vector, wrapped into main simulation box
      */
-    GPUMEMBER float3 minImage(float3 v) {
+    __host__ __device__ float3 minImage(float3 v) {
         int img = rintf(v.x * invRectLen.x);
         v -= sides[0] * img * periodic.x;
         img = rintf(v.y * invRectLen.y);
@@ -87,10 +80,35 @@ public:
      * \param v Point to test
      * \return True if inside simulation box
      */
-    GPUMEMBER bool inBounds(float3 v) {
+    __host__ __device__ bool inBounds(float3 v) {
         float3 diff = v - lo;
-        return diff.x < sides[0].x and diff.y < sides[1].y and diff.z < sides[2].z and diff.x >= 0 and diff.y >= 0 and diff.z >= 0;
+        return (diff.x < sides[0].x and diff.x >= 0 and
+                diff.y < sides[1].y and diff.y >= 0 and
+                diff.z < sides[2].z and diff.z >= 0);
     }
+
+    __host__ __device__ int oobInDir(float3 v, int dir) {
+        float3 diff = v - lo;
+        bool oobL = diff.x < 0;
+        bool oobR = diff.x >= sides[0].x;
+        bool oobD = diff.y < 0;
+        bool oobU = diff.y >= sides[1].y;
+        bool oobI = diff.z < 0;
+        bool oobO = diff.z >= sides[2].z;
+        int ret = 0;
+        if (oobL) { ret += 0; } else if (oobR) { ret += 2; } else { ret += 1; }
+        if (oobD) { ret += 0; } else if (oobU) { ret += 8; } else { ret += 4; }
+        if (oobI) { ret += 0; } else if (oobO) { ret += 32;} else { ret += 16;}
+        return ret;
+    }
+
+    float3 sides[3]; //!< 3 vectors defining the x-, y-, and z- direction
+    float3 rectLen;  //!< Length of box in standard coordinates
+    float3 invRectLen; //!< Inverse of the box expansion in standard
+                       //!< coordinates
+    float3 lo; //!< Point of origin
+    float3 periodic; //!< Stores whether box is periodic in x-, y-, and
+                     //!< z-direction
 };
 
 #endif

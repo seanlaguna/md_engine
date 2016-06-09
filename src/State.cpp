@@ -1,3 +1,5 @@
+#include <mpi.h>
+
 #include "Fix.h"
 #include "Bounds.h"
 #include "list_macro.h"
@@ -292,11 +294,6 @@ float State::getMaxRCut() {
 
 bool State::prepareForRun() {
 
-    // fixes have already prepared by the time the integrator calls this prepare
-    std::vector<float4> xs_vec, vs_vec, fs_vec, fsLast_vec;
-    std::vector<uint> ids;
-    std::vector<float> qs;
-
     /*
     auto pivot = *std::next(atomsFirst, std::distance(atomsFirst,atomsLast)/2);
     auto middle = std::partition(atomsFirst, atomsLast,
@@ -306,20 +303,29 @@ bool State::prepareForRun() {
     );
     */
 
-    /*
+    // gpupar sort atoms by x-value, then remove the ones not local
     std::sort(atoms.begin(), atoms.end(), [](const Atom &a, const Atom &b) {
                                               return a.pos[0] < b.pos[0];
                                           }
     );
-    auto split = *std::next(atoms.begin(), atoms.size()/2);
+    auto split = std::next(atoms.begin(), atoms.size()/2);
+    float boundsSplit = (split->pos[0] + (split+1)->pos[0]) / 2;
     if (mpiRank == 0) {
-        atoms.erase(split, atoms.end());
+        for (auto it = split; it != atoms.end(); ++it) {
+            remove_atom(&(*it));
+        }
     } else if (mpiRank == 1) {
-        atoms.erase(atoms.begin(), split);
+        for (auto it = atoms.begin(); it != split; ++it) {
+            remove_atom(&(*it));
+        }
     }
-    */
 
     int nAtoms = atoms.size();
+
+    // fixes have already prepared by the time the integrator calls this prepare
+    std::vector<float4> xs_vec, vs_vec, fs_vec, fsLast_vec;
+    std::vector<uint> ids;
+    std::vector<float> qs;
 
     xs_vec.reserve(nAtoms);
     vs_vec.reserve(nAtoms);
@@ -363,6 +369,20 @@ bool State::prepareForRun() {
     gpd.idToIdxsOnCopy = idToIdxs_vec;
     gpd.idToIdxs.set(idToIdxs_vec);
     boundsGPU = bounds.makeGPU();
+
+    // gpupar local bounds; sides are relative to lo, so need to correct
+    boundsLocalGPU = bounds.makeGPU();
+    if (mpiRank == 0) {
+        boundsLocalGPU.sides[0].x = boundsSplit - lo;
+    } else if (mpiRank == 1) {
+        boundsLocalGPU.sides[0].x += lo;
+        boundsLocalGPU.lo.x = boundsSplit;
+        boundsLocalGPU.sides[0].x -= lo;
+        assert(boundsLocalGPU.sides[0].x > 0.0);
+    }
+    boundsLocalGPU.rectLen = make_float3(sides[0].x, sides[1].y, sides[2].z);
+    boundsLocalGPU.invRectLen = (float)1 / boundsLocalGPU.rectLen;
+
     float maxRCut = getMaxRCut();
     gridGPU = grid.makeGPU(maxRCut);  // uses os, ns, ds, dsOrig from AtomGrid
 

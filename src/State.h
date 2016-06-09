@@ -50,79 +50,11 @@ class WriteConfig;
  * This class reflects the current state of the simulation. It contains and
  * manages all data.
  */
-class State {
-private:
-    //! Remove a group tag from the list of group tags
-    /*!
-     * \param handle String specifying the group
-     * \return Always true
-     *
-     * This function removes a group tag from the list of group tags.
-     */
-    bool removeGroupTag(std::string handle);
-
-    //! Add a new group tag
-    /*!
-     * \param handle New group tag to be added
-     * \return New group bitmask
-     *
-     * Add a new group tag and determine a new group tag bitmask. The bitmask
-     * will be the smallest unsigned int that is not yet used by another group
-     * tag.
-     */
-    uint addGroupTag(std::string handle);
-
-    //! Get the maximum cutoff value from all fixes
-    /*!
-     * \return Maximum cutoff value
-     *
-     * To be called from within prepare for run __after__ fixed have prepared
-     * (because that removes any DEFAULT_FILL values)
-     */
-    float getMaxRCut();
-
+class State
+{
 public:
-    std::vector<Atom> atoms; //!< List of all atoms in the simulation
-    GridGPU gridGPU; //!< The Grid on the GPU
-    BoundsGPU boundsGPU; //!< Bounds on the GPU
-    GPUData gpd; //!< All GPU data
-    DeviceManager devManager; //!< GPU device manager
-
-    AtomGrid grid; //!< Grid on the CPU
-    Bounds bounds; //!< Bounds on the CPU
-    std::vector<Fix *> fixes; //!< List of all fixes
-    std::vector<boost::shared_ptr<Fix> > fixesShr; //!< List of shared pointers to fixes
-    DataManager dataManager; //!< Data manager
-    std::vector<boost::shared_ptr<WriteConfig> > writeConfigs; //!< List of output writers
-    std::vector<boost::shared_ptr<PythonOperation> > pythonOperations; //!< List of Python
-                                                            //!< operations
-    std::map<std::string, uint32_t> groupTags; //!< Map of group handles and
-                                               //!< bitmasks
-    bool is2d; //!< True for 2d simulations, else False
-    bool buildNeighborlists; //!< If True neighbor lists are built in
-                             //!< AtomGrid::periodicBoundaryConditions()
-    bool periodic[3]; //!< If True, simulation is periodic in given dimension
-    float dt; //!< Timestep
-    float specialNeighborCoefs[3]; //!< Coefficients for modified neighbor
-                                   //!< interactions of bonded atoms (1-2, 1-3,
-                                   //!< 1-4 neighbors)
-    int64_t turn; //!< Step of the simulation
-    int runningFor; //!< How long the simulation is currently running
-    int64_t runInit; //!< Timestep at which the current run started
-    int dangerousRebuilds; //!< Unused
-    int periodicInterval; //!< Periodicity to wrap atoms and rebuild neighbor
-                          //!< list
-    bool computeVirials; //!< Fixes should compute virials
-
-    //! Cutoff parameter for pair interactions
-    /*!
-     * Each pair fix can define its own cutoff distance. If no fix defines a
-     * cutoff distance, this value is used as the default. When a run begins,
-     * the grid will determine the maximum cutoff distance of all Fixes and use
-     * that value. This bit has not been implemented yet.
-     */
-    double rCut;
-    double padding; //!< Added to rCut for cutoff distance of neighbor building
+    //! Default constructor
+    State();
 
     //! Set the coefficients for bonded neighbor interactions
     /*!
@@ -185,12 +117,6 @@ public:
     bool deactivatePythonOperation(boost::shared_ptr<PythonOperation> other);
 
     //bool fixIsActive(boost::shared_ptr<Fix>);
-
-    bool changedAtoms; //!< True if change in atom vector is not yet accounted
-                       //!< for
-    bool changedGroups; //!< True if change in groups is not yet accounted for
-    bool redoNeighbors; //!< Neighbor list needs to be recreated. Currently
-                        //!< unused
 
     //! Add Atoms to a Group
     /*!
@@ -321,11 +247,6 @@ public:
      */
     Atom *atomFromId(int id);
 
-    bool verbose; //!< Verbose output
-    int shoutEvery; //!< Report state of simulation every this many timesteps
-    AtomParams atomParams; //!< Generic properties of the Atoms, e.g. masses,
-                           //!< types, handles
-
     //! Return a copy of each Atom in the simulation
     /*!
      * \return Vector containing a copy of all Atoms in the simulation
@@ -369,12 +290,6 @@ public:
      * \todo Function does return neither True nor False
      */
     bool asyncHostOperation(std::function<void (int64_t )> cb);
-
-    boost::shared_ptr<std::thread> asyncData; //!< Shared pointer to a thread
-    boost::shared_ptr<ReadConfig> readConfig; //!< Shared pointer to configuration reader
-
-    //! Default constructor
-    State();
 
     //! Set periodicity of the simulation box
     /*!
@@ -425,8 +340,6 @@ public:
      */
     bool makeReady();
 
-    int maxExclusions; //!< Unused. \todo Remove? Grid uses maxExclusionsPerAtom
-
     //!
     void partitionAtoms();
 
@@ -466,21 +379,10 @@ public:
      */
     void destroy();
 
-    // these two are for managing atom ids such that they are densely packed
-    // and it's quick at add atoms in large systems
-    std::vector<int> idxFromIdCache; //!< Cache for easier Atom index lookup.
-
+    // for managing atom ids such that they are densely packed and it's quick at
+    // add atoms in large systems
     //! Update the Atom index cache
     void updateIdxFromIdCache();
-
-    //! Maximum Atom Id for all existing Atoms
-    /*!
-     * The maximum Atom Id is not identical to the number of Atoms as Atoms can
-     * be added and deleted.
-     */
-    int maxIdExisting;
-
-    std::vector<int> idBuffer; //!< Buffer of unused Atom Ids
 
     //! Return reference to the Random Number Generator
     /*!
@@ -507,10 +409,113 @@ public:
      * seed is 0, the RNG is initialized with a random seed.
      */
     void seedRNG(unsigned int seed = 0);
+
+private:
+    //! Remove a group tag from the list of group tags
+    /*!
+     * \param handle String specifying the group
+     * \return Always true
+     *
+     * This function removes a group tag from the list of group tags.
+     */
+    bool removeGroupTag(std::string handle);
+
+    //! Add a new group tag
+    /*!
+     * \param handle New group tag to be added
+     * \return New group bitmask
+     *
+     * Add a new group tag and determine a new group tag bitmask. The bitmask
+     * will be the smallest unsigned int that is not yet used by another group
+     * tag.
+     */
+    uint addGroupTag(std::string handle);
+
+    //! Get the maximum cutoff value from all fixes
+    /*!
+     * \return Maximum cutoff value
+     *
+     * To be called from within prepare for run __after__ fixed have prepared
+     * (because that removes any DEFAULT_FILL values)
+     */
+    float getMaxRCut();
+
+public:
+    std::vector<Atom> atoms; //!< List of all atoms in the simulation
+    GridGPU gridGPU; //!< The Grid on the GPU
+    BoundsGPU boundsGPU; //!< Bounds on the GPU
+    BoundsGPU boundsLocalGPU; //!< Bounds on the GPU
+    GPUData gpd; //!< All GPU data
+    DeviceManager devManager; //!< GPU device manager
+
+    AtomGrid grid; //!< Grid on the CPU
+    Bounds bounds; //!< Bounds on the CPU
+    std::vector<Fix *> fixes; //!< List of all fixes
+    std::vector<boost::shared_ptr<Fix> > fixesShr; //!< List of shared pointers to fixes
+    DataManager dataManager; //!< Data manager
+    std::vector<boost::shared_ptr<WriteConfig> > writeConfigs; //!< List of output writers
+    std::vector<boost::shared_ptr<PythonOperation> > pythonOperations; //!< List of Python
+                                                            //!< operations
+    std::map<std::string, uint32_t> groupTags; //!< Map of group handles and
+                                               //!< bitmasks
+    bool is2d; //!< True for 2d simulations, else False
+    bool buildNeighborlists; //!< If True neighbor lists are built in
+                             //!< AtomGrid::periodicBoundaryConditions()
+    bool periodic[3]; //!< If True, simulation is periodic in given dimension
+    float dt; //!< Timestep
+    float specialNeighborCoefs[3]; //!< Coefficients for modified neighbor
+                                   //!< interactions of bonded atoms (1-2, 1-3,
+                                   //!< 1-4 neighbors)
+    int64_t turn;          //!< Step of the simulation
+    int runningFor;        //!< How long the simulation is currently running
+    int64_t runInit;       //!< Timestep at which the current run started
+    int dangerousRebuilds; //!< Unused
+    int periodicInterval;  //!< Periodicity to wrap atoms and rebuild neighbor
+                           //!< list
+    bool computeVirials;   //!< Fixes should compute virials
+
+    //! Cutoff parameter for pair interactions
+    /*!
+     * Each pair fix can define its own cutoff distance. If no fix defines a
+     * cutoff distance, this value is used as the default. When a run begins,
+     * the grid will determine the maximum cutoff distance of all Fixes and use
+     * that value. This bit has not been implemented yet.
+     */
+    double rCut;
+    double padding; //!< Added to rCut for cutoff distance of neighbor building
+
+    bool changedAtoms; //!< True if change in atom vector is not yet accounted
+                       //!< for
+    bool changedGroups; //!< True if change in groups is not yet accounted for
+    bool redoNeighbors; //!< Neighbor list needs to be recreated. Currently
+                        //!< unused
+
+    bool verbose; //!< Verbose output
+    int shoutEvery; //!< Report state of simulation every this many timesteps
+    AtomParams atomParams; //!< Generic properties of the Atoms, e.g. masses,
+                           //!< types, handles
+
+    boost::shared_ptr<std::thread> asyncData; //!< Shared pointer to a thread
+    boost::shared_ptr<ReadConfig> readConfig; //!< Shared pointer to configuration reader
+
+    int maxExclusions; //!< Unused. \todo Remove? Grid uses maxExclusionsPerAtom
+
+    // for managing atom ids such that they are densely packed and it's quick at
+    // add atoms in large systems
+    std::vector<int> idxFromIdCache; //!< Cache for easier Atom index lookup.
+
+    //! Maximum Atom Id for all existing Atoms
+    /*!
+     * The maximum Atom Id is not identical to the number of Atoms as Atoms can
+     * be added and deleted.
+     */
+    int maxIdExisting;
+
+    std::vector<int> idBuffer; //!< Buffer of unused Atom Ids
+
 private:
     std::mt19937 randomNumberGenerator; //!< Random number generator
     bool rng_is_seeded; //!< True if seedRNG has been called
 };
 
 #endif
-

@@ -21,7 +21,8 @@ void export_VectorInt();
  *
  */
 template <typename T>
-class VectorGeneric {
+class VectorGeneric
+{
 private:
     T vals[3]; //!< Array storing the values
 
@@ -433,6 +434,7 @@ public:
         }
         return dist;
     }
+
 };
 
 typedef VectorGeneric<double> Vector;

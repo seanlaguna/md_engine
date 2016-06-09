@@ -1,13 +1,13 @@
 file (GLOB_RECURSE SOURCES "*.cpp" "*.cu")
 list (REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
 
-set(INC_DIRS ${INC_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}) 
-set(INC_DIRS ${INC_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/GPUArrays) 
+set(INC_DIRS ${INC_DIRS} ${CMAKE_CURRENT_SOURCE_DIR})
+set(INC_DIRS ${INC_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/GPUArrays)
 set(INC_DIRS ${INC_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/Integrators)
-set(INC_DIRS ${INC_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/Fixes) 
-set(INC_DIRS ${INC_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/DataStorageUser) 
-set(INC_DIRS ${INC_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/Evaluators) 
-set(INC_DIRS ${INC_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/BondedForcers) 
+set(INC_DIRS ${INC_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/Fixes)
+set(INC_DIRS ${INC_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/DataStorageUser)
+set(INC_DIRS ${INC_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/Evaluators)
+set(INC_DIRS ${INC_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/BondedForcers)
 
 SET(PY_INC_DIRS "${INC_DIRS}" PARENT_SCOPE)
 message("${INC_DIRS}")
@@ -23,7 +23,8 @@ target_link_libraries (${MD_ENGINE_LIB_NAME} ${PYTHON_LIBRARIES}
                                              ${Boost_LIBRARIES}
                                              ${PugiXML_LIBRARIES}
                                              ${CUDA_LIBRARIES}
-                                             ${CUDA_CUFFT_LIBRARIES})
+                                             ${CUDA_CUFFT_LIBRARIES}
+                                             ${MPI_CXX_LIBRARIES})
 
 # TODO: Why does install(TARGETS ...) not work?
 #install(TARGETS ${MD_ENGINE_LIB_NAME} LIBRARY DESTINATION lib)

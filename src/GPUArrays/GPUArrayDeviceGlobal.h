@@ -156,12 +156,12 @@ public:
      */
     void set(void const *copyFrom) {
         CUCHECK(cudaMemcpy(ptr, copyFrom, size()*sizeof(T),
-                                                cudaMemcpyHostToDevice));
+                           cudaMemcpyHostToDevice));
     }
-    void set (void const *copyFrom, size_t offset, size_t nElements) {
+    void set(void const *copyFrom, size_t offset, size_t nElements) {
         T *pointer = (T*)ptr;
         CUCHECK(cudaMemcpy(pointer+offset, copyFrom, nElements*sizeof(T),
-                                                cudaMemcpyHostToDevice));
+                           cudaMemcpyHostToDevice));
 
     }
 
@@ -177,10 +177,10 @@ public:
     void copyToDeviceArray(void *dest, cudaStream_t stream = nullptr) const {
         if (stream) {
             CUCHECK(cudaMemcpyAsync(dest, ptr, n*sizeof(T),
-                                            cudaMemcpyDeviceToDevice, stream));
+                                    cudaMemcpyDeviceToDevice, stream));
         } else {
             CUCHECK(cudaMemcpy(dest, ptr, n*sizeof(T),
-                                                    cudaMemcpyDeviceToDevice));
+                               cudaMemcpyDeviceToDevice));
         }
     }
 

@@ -11,7 +11,6 @@
 
 typedef double num;
 
-#define GPUMEMBER __host__ __device__
 #define SHARED(X) boost::shared_ptr<X>
 
 template <typename T>
@@ -53,6 +52,6 @@ using b_shared_ptr = boost::shared_ptr<T>;
 #define PERBLOCK 256
 #define NBLOCK(x) ((int) (ceil(x / (float) PERBLOCK)))
 
-#define LINEARIDX(idx, ns) (ns.z*ns.y*idx.x + ns.z*idx.y + idx.z)
+//#define LINEARIDX(idx, ns) (ns.z*ns.y*idx.x + ns.z*idx.y + idx.z)
 
 #endif

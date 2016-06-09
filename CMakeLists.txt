@@ -6,6 +6,8 @@
 # make
 
 cmake_minimum_required (VERSION 2.6)
+cmake_policy (SET CMP0064 OLD)
+
 project (MDengine)
 
 # Set the version number
@@ -52,6 +54,26 @@ find_package (Boost COMPONENTS python REQUIRED)
 # Find Pugi XML
 find_package (PugiXML REQUIRED)
 
+# Finding CUDA-aware MPI
+find_package (MPI REQUIRED)
+if (MPI_FOUND)
+    include_directories(${MPI_CXX_INCLUDE_PATH})
+    find_program (OMPI_INFO NAMES ompi_info)
+    if (OMPI_INFO)
+        execute_process (COMMAND ${OMPI_INFO} --parseable --all
+                         OUTPUT_VARIABLE _ompi_info_out
+        )
+        if (_ompi_info_out MATCHES "mpi_built_with_cuda_support:value:true")
+            message (STATUS "Found CUDA-aware MPI")
+            set (MPI_CUDA true)
+        else ()
+            message (STATUS "Found MPI, but no CUDA-aware MPI")
+        endif ()
+    else (OMPI_INFO)
+        message (STATUS "Could not run ompi_info")
+    endif (OMPI_INFO)
+endif (MPI_FOUND)
+
 message (STATUS "Building MD_engine Version ${VERSION_MAJOR}.${VERSION_MINOR}")
 
 # Set the source files
@@ -67,8 +89,8 @@ include_directories ("${PROJECT_BINARY_DIR}")
 
 set (MD_ENGINE_LIB_NAME Sim)
 
+# Add src directory
 add_subdirectory (src)
-#add src directory
 
 # Install Python library
 if (PYTHON)
