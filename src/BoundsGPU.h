@@ -87,7 +87,7 @@ public:
                 diff.z < sides[2].z and diff.z >= 0);
     }
 
-    __host__ __device__ int oobInDir(float3 v, int dir) {
+    __host__ __device__ OOBDir oobInDir(float3 v) {
         float3 diff = v - lo;
         bool oobL = diff.x < 0;
         bool oobR = diff.x >= sides[0].x;
@@ -96,10 +96,10 @@ public:
         bool oobI = diff.z < 0;
         bool oobO = diff.z >= sides[2].z;
         int ret = 0;
-        if (oobL) { ret += 0; } else if (oobR) { ret += 2; } else { ret += 1; }
-        if (oobD) { ret += 0; } else if (oobU) { ret += 8; } else { ret += 4; }
-        if (oobI) { ret += 0; } else if (oobO) { ret += 32;} else { ret += 16;}
-        return ret;
+        if (oobL) { ret |= 0; } else if (oobR) { ret |= 2; } else { ret |= 1; }
+        if (oobD) { ret |= 0; } else if (oobU) { ret |= 8; } else { ret |= 4; }
+        if (oobI) { ret |= 0; } else if (oobO) { ret |= 32;} else { ret |= 16;}
+        return static_cast<OOBDir>(ret);
     }
 
     float3 sides[3]; //!< 3 vectors defining the x-, y-, and z- direction

@@ -8,6 +8,7 @@
 #include "GPUArrayPair.h"
 #include "GPUArrayDeviceGlobal.h"
 #include "GPUArrayTex.h"
+#include "PartitionData.h"
 #include "Virial.h"
 
 class GPUData

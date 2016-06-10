@@ -87,6 +87,8 @@ public:
         return *this;
     }
 
+    T &operator[](size_t i) {   return ((T *)ptr)[i]; }
+
     //! Access pointer to data
     /*!
      * \return Pointer to memory location

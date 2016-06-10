@@ -33,6 +33,7 @@
 #include "Bounds.h"
 #include "AtomGrid.h"
 #include "DataManager.h"
+#include "PartitionData.h"
 
 #include "boost_for_export.h"
 #include "DeviceManager.h"

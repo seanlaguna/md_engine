@@ -292,16 +292,12 @@ float State::getMaxRCut() {
     return maxRCut;
 }
 
-bool State::prepareForRun() {
-
-    /*
-    auto pivot = *std::next(atomsFirst, std::distance(atomsFirst,atomsLast)/2);
-    auto middle = std::partition(atomsFirst, atomsLast,
-                                 [pivot](const Atom &a) {
-                                     return a.pos[0] < pivot.pos[0];
-                                 }
-    );
-    */
+bool State::prepareForRun()
+{
+	int rank;
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	int nRanks;
+	MPI_Comm_size(MPI_COMM_WORLD, &nRanks);
 
     // gpupar sort atoms by x-value, then remove the ones not local
     std::sort(atoms.begin(), atoms.end(), [](const Atom &a, const Atom &b) {
@@ -310,14 +306,13 @@ bool State::prepareForRun() {
     );
     auto split = std::next(atoms.begin(), atoms.size()/2);
     float boundsSplit = (split->pos[0] + (split+1)->pos[0]) / 2;
-    if (mpiRank == 0) {
-        for (auto it = split; it != atoms.end(); ++it) {
-            remove_atom(&(*it));
-        }
-    } else if (mpiRank == 1) {
-        for (auto it = atoms.begin(); it != split; ++it) {
-            remove_atom(&(*it));
-        }
+    if (rank == 0 && nRanks == 2) {
+        atoms.erase(atoms.begin() + (int)boundsSplit, atoms.end());
+    } else if (rank == 1 && nRanks == 2) {
+        atoms.erase(atoms.begin(), atoms.begin() + (int)boundsSplit);
+    } else if (nRanks > 2) {
+        std::cerr << "Cannot be run with more than 2 ranks yet" << std::endl;
+        std::exit(EXIT_FAILURE);
     }
 
     int nAtoms = atoms.size();
@@ -371,16 +366,18 @@ bool State::prepareForRun() {
     boundsGPU = bounds.makeGPU();
 
     // gpupar local bounds; sides are relative to lo, so need to correct
-    boundsLocalGPU = bounds.makeGPU();
-    if (mpiRank == 0) {
-        boundsLocalGPU.sides[0].x = boundsSplit - lo;
-    } else if (mpiRank == 1) {
-        boundsLocalGPU.sides[0].x += lo;
+    BoundsGPU boundsLocalGPU = bounds.makeGPU();
+    if (rank == 0) {
+        boundsLocalGPU.sides[0].x = boundsSplit - boundsGPU.lo.x;
+    } else if (rank == 1) {
+        boundsLocalGPU.sides[0].x += boundsGPU.lo.x;
         boundsLocalGPU.lo.x = boundsSplit;
-        boundsLocalGPU.sides[0].x -= lo;
+        boundsLocalGPU.sides[0].x -= boundsGPU.lo.x;
         assert(boundsLocalGPU.sides[0].x > 0.0);
     }
-    boundsLocalGPU.rectLen = make_float3(sides[0].x, sides[1].y, sides[2].z);
+    boundsLocalGPU.rectLen = make_float3(boundsLocalGPU.sides[0].x,
+										 boundsLocalGPU.sides[1].y,
+                                         boundsLocalGPU.sides[2].z);
     boundsLocalGPU.invRectLen = (float)1.0 / boundsLocalGPU.rectLen;
 
     gpd.partition = PartitionData(is2d, periodic, boundsLocalGPU);
