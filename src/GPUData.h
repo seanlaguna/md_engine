@@ -51,17 +51,19 @@ public:
     GPUArrayGlobal<uint> idsBuffer;
 
     /* for transfer between GPUs */
-    GPUArrayPair<float4> xsBuffersMoved;
-    GPUArrayPair<float4> vsBuffersMoved;
-    GPUArrayPair<float4> fsBuffersMoved;
-    GPUArrayPair<uint> idsBuffersMoved;
-    GPUArrayPair<float> qsBuffersMoved;
+    PartitionData partition;
+
+    GPUArrayPair<float4> xsMoved;
+    GPUArrayPair<float4> vsMoved;
+    GPUArrayPair<float4> fsMoved;
+    GPUArrayPair<uint> idsMoved;
+    GPUArrayPair<float> qsMoved;
     
-    GPUArrayPair<float4> xsBuffersGhost;
-    GPUArrayPair<float4> vsBuffersGhost;
-    GPUArrayPair<float4> fsBuffersGhost;
-    GPUArrayPair<uint> idsBuffersGhost;
-    GPUArrayPair<float> qsBuffersGhost;
+    GPUArrayPair<float4> xsGhost;
+    GPUArrayPair<float4> vsGhost;
+    GPUArrayPair<float4> fsGhost;
+    GPUArrayPair<uint> idsGhost;
+    GPUArrayPair<float> qsGhost;
 
     /* for data collection.  If we re-use per-particle arrays, we can't do async
      * kernels to do per-group sums.  Would use less memory though */

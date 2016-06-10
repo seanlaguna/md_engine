@@ -381,7 +381,9 @@ bool State::prepareForRun() {
         assert(boundsLocalGPU.sides[0].x > 0.0);
     }
     boundsLocalGPU.rectLen = make_float3(sides[0].x, sides[1].y, sides[2].z);
-    boundsLocalGPU.invRectLen = (float)1 / boundsLocalGPU.rectLen;
+    boundsLocalGPU.invRectLen = (float)1.0 / boundsLocalGPU.rectLen;
+
+    gpd.partition = PartitionData(is2d, periodic, boundsLocalGPU);
 
     float maxRCut = getMaxRCut();
     gridGPU = grid.makeGPU(maxRCut);  // uses os, ns, ds, dsOrig from AtomGrid

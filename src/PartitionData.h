@@ -32,8 +32,8 @@ const OOBDir OOBDirList[26] = {
 class PartitionData
 {
 public:
-    PartitionData(bool is2d, bool periodic_in[3])
-            : nDims(is2d? 2 : 3)
+    PartitionData(bool is2d, bool periodic_in[3], BoundsGPU boundsLocalGPU_in)
+            : nDims(is2d? 2 : 3), boundsLocalGPU(boundsLocalGPU_in)
     {
         int nRanks;
         MPI_Comm_size(MPI_COMM_WORLD, &nRanks);
@@ -48,7 +48,7 @@ public:
             periodic = periodic_in;
         }
         MPI_Cart_create(MPI_COMM_WORLD, nDims, dimSizes, periodic, 0, &comm);
-        adjacentRanks = getAdjacentRanks();
+        fillAdjInfo();
     }
 
     // returns index in list of adjacent directions
@@ -75,9 +75,10 @@ public:
     // todo: make GPU arrays
     std::vector<int> adjRanks;
     std::vector<int> adjDirs;
+    BoundsGPU boundsLocalGPU; //!< Bounds on the GPU
 
 private:
-    OOBDir offsToDir(int offs[3]) {
+    __host__ __device__ OOBDir offsToDir(int offs[3]) {
         uint bases[3] = { 0, 2, 4 };
         OOBDir dir = 0;
         for (int i = 0; i < nDims; ++i) {
@@ -89,11 +90,8 @@ private:
         return dir;
     }
 
-    std::vector<int> getAdjacentRanks()
+    void fillAdjInfo()
     {
-        std::vector<int> adjacentRanks;
-        std::vector<OOBDir> adjacentDirs;
-        
         int rank;
         MPI_Comm_rank(comm, &rank);
         int coords[nDims];
@@ -121,13 +119,13 @@ private:
                        }
                        if (skip) { continue; }
                        MPI_Cart_rank(comm, coordsAdj, &rankAdj);
-                       adjacentRanks.push_back(rankAdj);
-                       adjacentDirs.push_back(offsToDir({ offx, offy, offz }));
+                       adjRanks.push_back(rankAdj);
+                       adjDirs.push_back(offsToDir({ offx, offy, offz }));
                   }  // end offz
              }  // end offy
         }  // end offx
-        std::sort(adjacentRanks);
-        return adjacentRanks;
+        std::sort(adjRanks);
+        std::sort(adjDirs);
     }
 
 private:
@@ -135,7 +133,7 @@ private:
 
     // x, y, z outer -> inner, just like rest of code
     int dimSizes[nDims];
-    bool periodic[nDims];
+    int periodic[nDims];
 
     MPI_Comm comm;
 

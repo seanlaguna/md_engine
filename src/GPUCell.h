@@ -1,4 +1,5 @@
 
+/*
 struct CellIterator {
 
     float3 pos;
@@ -44,6 +45,7 @@ struct CellIterator {
 
 
 };
+*/
 
 /*
 

@@ -444,7 +444,6 @@ public:
     std::vector<Atom> atoms; //!< List of all atoms in the simulation
     GridGPU gridGPU; //!< The Grid on the GPU
     BoundsGPU boundsGPU; //!< Bounds on the GPU
-    BoundsGPU boundsLocalGPU; //!< Bounds on the GPU
     GPUData gpd; //!< All GPU data
     DeviceManager devManager; //!< GPU device manager
 

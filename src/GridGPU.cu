@@ -1,12 +1,15 @@
 #include "GridGPU.h"
 
-#include "State.h"
-#include "helpers.h"
 #include "Bond.h"
 #include "BoundsGPU.h"
-#include "list_macro.h"
-#include "Mod.h"
+#include "CudaMPI.h"
 #include "Fix.h"
+#include "helpers.h"
+#include "list_macro.h"
+#include "PartitionData.h"
+#include "Mod.h"
+#include "State.h"
+
 #include "cutils_func.h"
 #include "cutils_math.h"
 
@@ -523,18 +526,16 @@ __global__ void setCumulativeSumPerBlock(int numBlocks, uint32_t *perBlockArray,
 }
 
 
-__global__ void countTransferAtoms(float4 *xs, float4 *xsMoved,
-                                   float4 *vs, float4 *vsMoved,
-                                   float4 *fs, float4 *fsMoved,
-                                   uint *ids, uint *idsMoved,
-                                   float *qs, float4 *qsMoved,
-                                   uint16_t *szMoved)
+__global__ void countTransferAtoms(float4 *xs, BoundsGPU boundsLocalGPU,
+                                   int nAtoms, uint16_t *szMoved)
 {
     int idx = GETIDX();
-    OOBDirs dir = boundsLocalGPU.oobInDir(make_float3(xs[idx]));
-    if (dir != OOBDirs.MMM) {
-        // atomicAdd returns old value
-        atomicAdd(szMoved[dir], 1);
+    if (idx < nAtoms) {
+        OOBDirs dir = boundsLocalGPU.oobInDir(make_float3(xs[idx]));
+        if (dir != OOBDirs.MMM) {
+            // atomicAdd returns old value
+            atomicAdd(szMoved[dir], 1);
+        }
     }
 }
 
@@ -543,23 +544,28 @@ __global__ void copySendAtoms(float4 *xs, float4 *xsMoved,
                               float4 *fs, float4 *fsMoved,
                               uint *ids, uint *idsMoved,
                               float *qs, float4 *qsMoved,
-                              uint16_t *idxsMoved, BoundsGPU boundsLocalGPU)
+                              uint16_t *idxsMoved, int nAtoms,
+                              uint16_t *szMoved, uint16_t szMaxMoved,
+                              PartitionData partition)
 {
     int idx = GETIDX();
-    OOBDirs dir = boundsLocalGPU.oobInDir(make_float3(xs[idx]));
-    auto adjIdx = partition.getAdjIdx(dir);
-    if (adjIdx != partition.adjRanks.size()) {
-        int idxM = atomicAdd(szMoved[dir], 1);
-        copyToOtherList<float4>(xs, xsMoved(send), idx, dirOff + idxM);
-        copyToOtherList<float4>(vs, vsMoved(send), idx, idxM);
-        copyToOtherList<float4>(fs, fsMoved(send), idx, idxM);
-        copyToOtherList<uint>(ids, idsMoved(send), idx, idxM);
-        copyToOtherList<float>(qs, qsMoved(send), idx, idxM);
-        idxsMoved[idxM] = idx;
-        // TODO: when sorting happens, this will be at the end
-        xs[idx].x = boundsLocalGPU.sides[0].x;
-        xs[idx].y = boundsLocalGPU.sides[1].y;
-        xs[idx].z = boundsLocalGPU.sides[2].z;
+    if (idx < nAtoms) {
+        OOBDirs dir = partition.boundsLocalGPU.oobInDir(make_float3(xs[idx]));
+        auto adjIdx = partition.getAdjIdx(dir);
+        if (adjIdx != partition.adjSize) {
+            int idxM = adjIdx * szMaxMoved + atomicAdd(szMoved[dir], 1);
+            copyToOtherList<float4>(xs, xsMoved(send), idx, idxM);
+            copyToOtherList<float4>(vs, vsMoved(send), idx, idxM);
+            copyToOtherList<float4>(fs, fsMoved(send), idx, idxM);
+            copyToOtherList<uint>(ids, idsMoved(send), idx, idxM);
+            copyToOtherList<float>(qs, qsMoved(send), idx, idxM);
+            idxsMoved[idxM] = idx;
+
+            // TODO: when sorting happens, this will be at the end
+            xs[idx].x = partition.boundsLocalGPU.sides[0].x;
+            xs[idx].y = partition.boundsLocalGPU.sides[1].y;
+            xs[idx].z = partition.boundsLocalGPU.sides[2].z;
+        }
     }
 }
 
@@ -568,16 +574,17 @@ __global__ void copyRecvAtoms(float4 *xs, float4 *xsMoved,
                               float4 *fs, float4 *fsMoved,
                               uint *ids, uint *idsMoved,
                               float *qs, float4 *qsMoved,
-                              uint16_t *idxsMoved)
+                              uint16_t *idxsMoved, uint16_t szTotalRecv)
 {
     int idx = GETIDX();
-    copyToOtherList<float4>(xsMoved(recv), xs, idx, idxsMoved[idx]);
-    copyToOtherList<float4>(vsMoved(recv), vs, idx, idxsMoved[idx]);
-    copyToOtherList<float4>(fsMoved(recv), fs, idx, idxsMoved[idx]);
-    copyToOtherList<uint>(idsMoved(recv), ids, idx, idxsMoved[idx]);
-    copyToOtherList<float>(qsMoved(recv), qs, idx, idxsMoved[idx]);
+    if (idx < szTotalRecv) {
+        copyToOtherList<float4>(xsMoved(recv), xs, idx, idxsMoved[idx]);
+        copyToOtherList<float4>(vsMoved(recv), vs, idx, idxsMoved[idx]);
+        copyToOtherList<float4>(fsMoved(recv), fs, idx, idxsMoved[idx]);
+        copyToOtherList<uint>(idsMoved(recv), ids, idx, idxsMoved[idx]);
+        copyToOtherList<float>(qsMoved(recv), qs, idx, idxsMoved[idx]);
+    }
 }
-
 
 void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild) {
 
@@ -626,34 +633,34 @@ void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild) {
         periodicWrap<<<NBLOCK(nAtoms), PERBLOCK>>>(
                     state->gpd.xs(activeIdx), nAtoms, boundsUnskewed);
 
+        // shortcut for partition, which gets used to:
+        //   * identify OOB atoms
+        //   * tell us which dirs are adjacent to us
+        //   * map between dirs and arraymap offsets
+        //   * map between dirs and ranks
+        PartitionData &partition = state->gpd.partition;
+
         // get how many atoms move in each direction
-        
-        auto szMoved = GPUArrayPair(partition.adjacentRanks.size());
-        std::fill(szMoved.data(), szMoved.data() + szMoved.size(), 0);
+        auto szMoved = GPUArrayPair<uint16_t>(partition.adjSize);
+        std::fill(szMoved(send).data(),
+                  szMoved(send).data() + szMoved.size(), 0);
         countTransferAtoms<<<NBLOCK(nAtoms), PERBLOCK>>>(
-                    state->gpd.xs(activeIdx), state->gpd.xsMoved(send),
-                    state->gpd.vs(activeIdx), state->gpd.vsMoved(send),
-                    state->gpd.fs(activeIdx), state->gpd.fsMoved(send),
-                    state->gpd.ids(activeIdx), state->gpd.idsMoved(send),
-                    state->gpd.qs(activeIdx), state->gpd.qsMoved(send),
-                    szMoved(send));
+                    state->gpd.xs(activeIdx), partition->boundsLocalGPU,
+                    nAtoms, szMoved(send));
 
         // sendrecv sizes
-        for (auto dir : OOBDirList) {
-            int transferIdx = dirToTransferIdx[dir] * maxMoved;
-            MPI_sendrecv_gpu(state->gpd.szMoved(send)[transferIdx],
-                             state->gpd.szMoved(recv)[transferIdx],
-                             szMoved(send)[transferIdx].size(),
-                             szMoved(recv)[transferIdx].size(),
-                             MPI_FLOAT, dirToRank(dir));
+        for (int idx = 0; idx < partition.adjSize(); ++idx) {
+            MPI_sendrecv_gpu(state->gpd.szMoved(send)[idx],
+                             state->gpd.szMoved(recv)[idx],
+                             1, 1, MPI_FLOAT, partition.adjRanks[i]);
         }
 
         // get max moved in any direction
         int szMaxSend = *std::max_element(szMoved(send).data(),
-                                          zMoved(send).data() + szMoved.size());
+                                          szMoved(send).data() + szMoved.size());
         int szMaxRecv = *std::max_element(szMoved(recv).data(),
-                                          zMoved(recv).data() + szMoved.size())
-        int szMaxTransfer = std::max(szMaxSend, szMaxRecv);
+                                          szMoved(recv).data() + szMoved.size());
+        int szMaxMoved = std::max(szMaxSend, szMaxRecv);
         
         // get size of lists to send, recv, and max of both
         int szTotalSend = std::accumulate(szMoved(send).data().begin(),
@@ -662,8 +669,40 @@ void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild) {
                                           szMoved(recv).data().end(), 0);
         szTotalMax = std::max(szTotalSend, szTotalRecv);
 
+        // reallocate moved if necessary; for now, send and recv will be same size
+        if (    szMaxMoved * partition.adjSize > state->gpd.xsMoved.size() ||
+                szMaxMoved * partition.adjSize < state->gpd.xsMoved.size() / 2) {
+            int szNew = szMaxMoved * partition.adjSize * 1.5;
+            state->gpd.xsMoved = GPUArrayPair<float4>(szNew);
+            state->gpd.vsMoved = GPUArrayPair<float4>(szNew);
+            state->gpd.fsMoved = GPUArrayPair<float4>(szNew);
+            state->gpd.idsMoved = GPUArrayPair<uint>(szNew);
+            state->gpd.qsMoved = GPUArrayPair<float>(szNew);
+        }
+
+        // copy OOB atoms to moved arrays
+        auto idxsMoved = GPUArrayDeviceGlobal<uint>(szTotalMax);
+        std::fill(szMoved(send).data(),
+                  szMoved(send).data() + szMoved.size(), 0);
+        copySendAtoms<<<NBLOCK(nAtoms), PERBLOCK>>>(
+                    state->gpd.xs(activeIdx), state->gpd.xsMoved(send),
+                    state->gpd.vs(activeIdx), state->gpd.vsMoved(send),
+                    state->gpd.fs(activeIdx), state->gpd.fsMoved(send),
+                    state->gpd.ids(activeIdx), state->gpd.idsMoved(send),
+                    state->gpd.qs(activeIdx), state->gpd.qsMoved(send),
+                    idxsMoved, nAtoms, szMoved(send), szMaxMoved, partition);
+        // if we recv more atoms than we send, then add them to the end
+        // *** notice the size of idxsMoved is szTotalMax ***
+        int end = nAtoms;
+        for (int i = szTotalSend; i < szTotalRecv; ++i) {
+            idxsMoved[i] = end++;
+        }
+        
+        // update number of atoms as above, so idxsMoved makes sense
         nAtoms += (szTotalRecv - szTotalSend);
+
         // reallocate atoms if necessary
+        // TODO: make helper of GpuArrayPair, this is awful
         if(nAtoms > state->gpd.xs.size()) {
             auto xsTemp = GPUArrayDeviceGlobal(nAtoms);
             xsTemp.set(state->gpd.xs(activeIdx), state->gpd.xs.size());
@@ -692,66 +731,41 @@ void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild) {
             state->gpd.qs.h_data = std::vector<float>(nAtoms);
         }
 
-        // reallocate moved if necessary; for now, send and recv will be same size
-        auto idxsMoved = GPUArrayPair<uint>(szTotalMax);
-        if (    szMaxTransfer * 26 > xsMoved.size() ||
-                szMaxTransfer * 26 < xsMoved.size() / 2) {
-            xsMoved = GPUArrayPair<float4>(szMaxTransfer*26*1.5);
-            vsMoved = GPUArrayPair<float4>(szMaxTransfer*26*1.5);
-            fsMoved = GPUArrayPair<float4>(szMaxTransfer*26*1.5);
-            idsMoved = GPUArrayPair<uint>(szMaxTransfer*26*1.5);
-            qsMoved = GPUArrayPair<float>(szMaxTransfer*26*1.5);
-        }
-
-        // copy atoms to moved arrays, and MPI them
-        std::fill(szMoved.data(), szMoved.data() + szMoved.size(), 0);
-        copySendAtoms<<<NBLOCK(nAtoms), PERBLOCK>>>(
-                    state->gpd.xs(activeIdx), state->gpd.xsMoved(send),
-                    state->gpd.vs(activeIdx), state->gpd.vsMoved(send),
-                    state->gpd.fs(activeIdx), state->gpd.fsMoved(send),
-                    state->gpd.ids(activeIdx), state->gpd.idsMoved(send),
-                    state->gpd.qs(activeIdx), state->gpd.qsMoved(send),
-                    idxsMoved, szMoved, state->boundsLocalGPU);
-        int end = nAtoms;
-        for (int i = szTotalSend; i < szTotalRecv; ++i) {
-            idxsMoved[i] = end++;
-        }
-        for (auto dir : OOBDirList) {
-            int transferIdx = dirToTransferIdx(dir) * maxMoved;
-            int rankOther = dirToRank(dir);
-            int szSend = szMoved(send)[dir];
-            int szRecv = szMoved(recv)[dir];
-            int szSendf4 = szMoved(send)[dir] * sizeof(float4)/sizeof(float)
-            int szRecvf4 = szMoved(recv)[dir] * sizeof(float4)/sizeof(float)
-            MPI_sendrecv_gpu(state->gpd.xsMoved(send)[transferIdx],
-                             state->gpd.xsMoved(recv)[transferIdx],
+        // send and receive data
+        for (int idx = 0; idx < partition.adjRanks.size(); ++idx) {
+            int transferIdx = partition.adjRanks[idx] * szMaxMoved;
+            int rankOther = partition.adjDirs[idx];
+            int szSend = szMoved(send)[idx];
+            int szRecv = szMoved(recv)[idx];
+            int szSendf4 = szMoved(send)[idx] * sizeof(float4)/sizeof(float)
+            int szRecvf4 = szMoved(recv)[idx] * sizeof(float4)/sizeof(float)
+            MPI_sendrecv_gpu(state->gpd.xsMoved(send).data() + transferIdx,
+                             state->gpd.xsMoved(recv).data() + transferIdx,
                              szSendf4, szRecvf4, MPI_FLOAT, rankOther);
-            MPI_sendrecv_gpu(state->gpd.vsMoved(send)[transferIdx],
-                             state->gpd.vsMoved(recv)[transferIdx],
+            MPI_sendrecv_gpu(state->gpd.vsMoved(send).data() + transferIdx,
+                             state->gpd.vsMoved(recv).data() + transferIdx,
                              szSendf4, szRecvf4, MPI_FLOAT, rankOther);
-            MPI_sendrecv_gpu(state->gpd.fsMoved(send)[transferIdx],
-                             state->gpd.fsMoved(recv)[transferIdx],
+            MPI_sendrecv_gpu(state->gpd.fsMoved(send).data() + transferIdx,
+                             state->gpd.fsMoved(recv).data() + transferIdx,
                              szSendf4, szRecvf4, MPI_FLOAT, rankOther);
-            MPI_sendrecv_gpu(state->gpd.idsMoved(send)[transferIdx],
-                             state->gpd.idsMoved(recv)[transferIdx],
+            MPI_sendrecv_gpu(state->gpd.idsMoved(send).data() + transferIdx,
+                             state->gpd.idsMoved(recv).data() + transferIdx,
                              szSend, szRecv, MPI_UINT, rankOther);
-            MPI_sendrecv_gpu(state->gpd.qsMoved(send)[transferIdx],
-                             state->gpd.qsMoved(recv)[transferIdx],
+            MPI_sendrecv_gpu(state->gpd.qsMoved(send).data() + transferIdx,
+                             state->gpd.qsMoved(recv).data() + transferIdx,
                              szSend, szRecv, MPI_FLOAT, rankOther);
         }
 
-        // copy atoms to moved arrays, and MPI-send them
-        copyRecvAtoms<<<NBLOCK(idxsMoved.size()), PERBLOCK>>>(
+        // copy received atoms to local gpu arrays; notice that, as above,
+        // szTotalMax == idxsMoved.size() >= szTotalRecv
+        copyRecvAtoms<<<NBLOCK(szTotalRecv), PERBLOCK>>>(
                     state->gpd.xs(activeIdx), state->gpd.xsMoved,
                     state->gpd.vs(activeIdx), state->gpd.vsMoved,
                     state->gpd.fs(activeIdx), state->gpd.fsMoved,
                     state->gpd.fsLast(activeIdx), state->gpd.fsLastMoved,
                     state->gpd.ids(activeIdx), state->gpd.idsMoved,
                     state->gpd.qs(activeIdx), state->gpd.qsMoved,
-                    idxsMoved);
-
-        // TODO: map between dirs and ranks
-        // TODO: fix idsToIdxs
+                    idxsMoved, szTotalRecv);
 
         // TODO: ghosts
         // 1. count ghosts atoms/cell, store in array
