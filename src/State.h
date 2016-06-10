@@ -39,6 +39,7 @@
 #include "DeviceManager.h"
 
 void export_State();
+void export_MPI();
 
 class PythonOperation;
 class ReadConfig;

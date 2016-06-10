@@ -17,9 +17,9 @@ set (VERSION_MINOR 4)
 # Activate debug output of called with -DDEBUG=1
 if (DEBUG)
     set (CMAKE_BUILD_TYPE "DEBUG")
-    set (CUDA_VERBOSE_BUILD ON)
-    set (CMAKE_VERBOSE_MAKEFILE ON)
-    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wall -pedantic")
+#    set (CUDA_VERBOSE_BUILD ON)
+#    set (CMAKE_VERBOSE_MAKEFILE ON)
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ggdb -Wall")
     set (CUDA_NVCC_DEBUG_FLAGS -Xcompiler -Wall;)
 endif (DEBUG)
 
@@ -34,6 +34,8 @@ endif ()
 
 set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules")
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fpic")
+
+message (STATUS ${CMAKE_CXX_FLAGS})
 
 # Find CUDA
 find_package(CUDA REQUIRED)
@@ -56,7 +58,13 @@ find_package (PugiXML REQUIRED)
 
 # Finding CUDA-aware MPI
 find_package (MPI REQUIRED)
-if (MPI_FOUND)
+message (STATUS ${MPI_CXX_FOUND})
+message (STATUS ${MPI_CXX_COMPILER})
+message (STATUS ${MPI_CXX_COMPILE_FLAGS})
+message (STATUS ${MPI_CXX_INCLUDE_PATH})
+message (STATUS ${MPI_CXX_LINK_FLAGS})
+message (STATUS ${MPI_CXX_LIBRARIES})
+if (MPI_CXX_FOUND)
     include_directories(${MPI_CXX_INCLUDE_PATH})
     find_program (OMPI_INFO NAMES ompi_info)
     if (OMPI_INFO)
@@ -72,7 +80,7 @@ if (MPI_FOUND)
     else (OMPI_INFO)
         message (STATUS "Could not run ompi_info")
     endif (OMPI_INFO)
-endif (MPI_FOUND)
+endif (MPI_CXX_FOUND)
 
 message (STATUS "Building MD_engine Version ${VERSION_MAJOR}.${VERSION_MINOR}")
 

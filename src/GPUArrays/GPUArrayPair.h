@@ -65,9 +65,8 @@ public:
      * \todo Make this constructor explicit
      */
     GPUArrayPair(size_t n)
-            : activeIdx(0)
+            : activeIdx(0), h_data(std::vector<T>(n))
     {
-        h_data = std::vector<T>(n);
         for (int i=0; i<2; i++) {
             d_data[i] = GPUArrayDeviceGlobal<T>(n);
         }
@@ -86,9 +85,6 @@ public:
             : activeIdx(0)
     {
         set(vals);
-        for (int i=0; i<2; i++) {
-            d_data[i] = GPUArrayDeviceGlobal<T>(vals.size());
-        }
     }
 
     //! Return pointer to GPU data

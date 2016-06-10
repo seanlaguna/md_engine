@@ -294,28 +294,46 @@ float State::getMaxRCut() {
 
 bool State::prepareForRun()
 {
-	int rank;
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-	int nRanks;
-	MPI_Comm_size(MPI_COMM_WORLD, &nRanks);
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    int nRanks;
+    MPI_Comm_size(MPI_COMM_WORLD, &nRanks);
+
+    std::cout << "sizeof atoms: " << atoms.size() << std::endl;
 
     // gpupar sort atoms by x-value, then remove the ones not local
-    std::sort(atoms.begin(), atoms.end(), [](const Atom &a, const Atom &b) {
-                                              return a.pos[0] < b.pos[0];
-                                          }
+    std::sort(atoms.begin(), atoms.end(),
+              [](const Atom &a, const Atom &b) {
+                  if (a.pos[0] == b.pos[0]) {
+                      if (a.pos[1] == b.pos[1]) {
+                          return (a.pos[2] < b.pos[2]);
+                      } else {
+                          return (a.pos[1] < b.pos[1]);
+                      }
+                  } else {
+                      return (a.pos[0] < b.pos[0]);
+                  }
+              }
     );
-    auto split = std::next(atoms.begin(), atoms.size()/2);
-    float boundsSplit = (split->pos[0] + (split+1)->pos[0]) / 2;
+    auto head = std::next(atoms.begin(), (atoms.size() * (rank)) / nRanks);
+    auto tail = std::next(atoms.begin(), (atoms.size() * (rank+1)) / nRanks);
+    float boundsLo = (rank == 0) ? (bounds.lo[0])  \
+                                 : (head->pos[0] + (head+1)->pos[0]) / 2;
+    float boundsHi = (rank == nRanks-1) ? (bounds.hi[0])  \
+                                 : (tail->pos[0] + (tail+1)->pos[0]) / 2;
+    std::cout << "local bounds in x: " << boundsLo << " " << boundsHi << std::endl;
     if (rank == 0 && nRanks == 2) {
-        atoms.erase(atoms.begin() + (int)boundsSplit, atoms.end());
+        atoms.erase(atoms.begin() + atoms.size()/2, atoms.end());
     } else if (rank == 1 && nRanks == 2) {
-        atoms.erase(atoms.begin(), atoms.begin() + (int)boundsSplit);
+        atoms.erase(atoms.begin(), atoms.begin() + atoms.size()/2);
     } else if (nRanks > 2) {
         std::cerr << "Cannot be run with more than 2 ranks yet" << std::endl;
         std::exit(EXIT_FAILURE);
     }
 
     int nAtoms = atoms.size();
+
+    std::cout << "sizeof atoms: " << atoms.size() << std::endl;
 
     // fixes have already prepared by the time the integrator calls this prepare
     std::vector<float4> xs_vec, vs_vec, fs_vec, fsLast_vec;
@@ -367,18 +385,26 @@ bool State::prepareForRun()
 
     // gpupar local bounds; sides are relative to lo, so need to correct
     BoundsGPU boundsLocalGPU = bounds.makeGPU();
-    if (rank == 0) {
-        boundsLocalGPU.sides[0].x = boundsSplit - boundsGPU.lo.x;
-    } else if (rank == 1) {
-        boundsLocalGPU.sides[0].x += boundsGPU.lo.x;
-        boundsLocalGPU.lo.x = boundsSplit;
-        boundsLocalGPU.sides[0].x -= boundsGPU.lo.x;
-        assert(boundsLocalGPU.sides[0].x > 0.0);
-    }
+    boundsLocalGPU.lo.x = boundsLo;
+    boundsLocalGPU.sides[0].x = boundsHi - boundsLo;
+    assert(boundsLocalGPU.sides[0].x > 0.0);
     boundsLocalGPU.rectLen = make_float3(boundsLocalGPU.sides[0].x,
-										 boundsLocalGPU.sides[1].y,
+                                         boundsLocalGPU.sides[1].y,
                                          boundsLocalGPU.sides[2].z);
     boundsLocalGPU.invRectLen = (float)1.0 / boundsLocalGPU.rectLen;
+
+    std::cout << "bounds: " << boundsGPU.sides[0].x << std::endl;
+    std::cout << "bounds: " << boundsGPU.sides[1].y << std::endl;
+    std::cout << "bounds: " << boundsGPU.sides[2].z << std::endl;
+    std::cout << "bounds: " << boundsGPU.lo.x << std::endl;
+    std::cout << "bounds: " << boundsGPU.lo.y << std::endl;
+    std::cout << "bounds: " << boundsGPU.lo.z << std::endl;
+    std::cout << "bounds: " << boundsLocalGPU.sides[0].x << std::endl;
+    std::cout << "bounds: " << boundsLocalGPU.sides[1].y << std::endl;
+    std::cout << "bounds: " << boundsLocalGPU.sides[2].z << std::endl;
+    std::cout << "bounds: " << boundsLocalGPU.lo.x << std::endl;
+    std::cout << "bounds: " << boundsLocalGPU.lo.y << std::endl;
+    std::cout << "bounds: " << boundsLocalGPU.lo.z << std::endl;
 
     gpd.partition = PartitionData(is2d, periodic, boundsLocalGPU);
 
@@ -395,7 +421,8 @@ bool State::prepareForRun()
     return true;
 }
 
-void copyAsyncWithInstruc(State *state, std::function<void (int64_t )> cb, int64_t turn) {
+void copyAsyncWithInstruc(State *state, std::function<void(int64_t)> cb, int64_t turn)
+{
     cudaStream_t stream;
     CUCHECK(cudaStreamCreate(&stream));
     state->gpd.xsBuffer.dataToHostAsync(stream);
@@ -654,7 +681,8 @@ Vector generateVector(State &s) {
 
 BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(State_seedRNG_overloads,State::seedRNG,0,1)
 
-void export_State() {
+void export_State()
+{
     boost::python::class_<State,
                           SHARED(State) >(
         "State",
@@ -716,10 +744,23 @@ void export_State() {
     .def_readonly("deviceManager", &State::devManager)
     //helper for reader funcs
     .def("Vector", &generateVector)
-
-
     ;
 
 }
 
+void initMPI()
+{
+    MPI_Init(NULL, NULL);
+}
+
+void finalizeMPI()
+{
+    MPI_Finalize();
+}
+
+void export_MPI()
+{
+    boost::python::def("MPI_Init", initMPI);
+    boost::python::def("MPI_Finalize", finalizeMPI);
+}
 

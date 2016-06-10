@@ -613,7 +613,7 @@ void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild) {
     buildFlag.dataToHost();
     cudaDeviceSynchronize();
 
-    // std::cout << "I AM BUILDING" << std::endl;
+    std::cout << "I AM BUILDING" << std::endl;
     if (buildFlag.h_data[0] or forceBuild) {
 
         float3 ds_orig = ds;
@@ -634,6 +634,7 @@ void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild) {
         periodicWrap<<<NBLOCK(nAtoms), PERBLOCK>>>(
                     state->gpd.xs(activeIdx), nAtoms, boundsUnskewed);
 
+        std::cout << "making partition" << std::endl;
         // shortcut for partition, which gets used to:
         //   * identify OOB atoms
         //   * tell us which dirs are adjacent to us
@@ -644,36 +645,59 @@ void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild) {
         int send = 0;
         int recv = 1;
 
+        std::cout << "size of adjacent: " << partition.adjSize << std::endl;
         // get how many atoms move in each direction
         auto szMoved = GPUArrayPair<uint>(partition.adjSize);
-        std::fill(szMoved(send), szMoved(send) + szMoved.size(), 0);
+        szMoved.memsetByVal(0, send);
+        std::cout << "about to count transfers: " << partition.adjSize << std::endl;
+        std::cout << "oobInDir tests: "
+                  << partition.boundsLocalGPU.oobInDir(make_float3(1,1,1))
+                  << std::endl;
         countTransferAtoms<<<NBLOCK(nAtoms), PERBLOCK>>>(
                     state->gpd.xs(activeIdx), partition,
                     nAtoms, szMoved(send));
-
+        std::cout << "about to sendrecv " << szMoved.h_data[0] << "atoms" << std::endl;
+        szMoved.dataToHost(send);
         // Sendrecv sizes
         for (int idx = 0; idx < partition.adjSize; ++idx) {
             MPI_Sendrecv_gpu(szMoved(send) + idx, szMoved(recv) + idx,
                              1, 1, MPI_UNSIGNED, partition.adjRanks[idx]);
         }
 
+        std::cout << "getting max and total" << std::endl;
         // get max moved in any direction
-        uint szMaxSend = *std::max_element(szMoved(send),
-                                           szMoved(send) + szMoved.size());
-        uint szMaxRecv = *std::max_element(szMoved(recv),
-                                           szMoved(recv) + szMoved.size());
+
+        uint szMaxSend = 0;
+        auto *szMaxSendPtr = std::max_element(szMoved(send),
+                                              szMoved(send) + szMoved.size());
+        if (szMaxSendPtr != szMoved(send) + szMoved.size()) {
+            szMaxSend = *szMaxSendPtr;
+        }
+        std::cout << "getting max and total" << std::endl;
+        uint szMaxRecv = 0;
+        auto *szMaxRecvPtr = std::max_element(szMoved(recv),
+                                              szMoved(recv) + szMoved.size());
+        if (szMaxRecvPtr != szMoved(recv) + szMoved.size()) {
+            szMaxRecv = *szMaxRecvPtr;
+        }
+        std::cout << "getting max and total" << std::endl;
         uint szMaxMoved = std::max(szMaxSend, szMaxRecv);
         
+        std::cout << "getting max and total" << std::endl;
         // get size of lists to send, recv, and max of both
         uint szTotalSend = std::accumulate(szMoved(send),
                                            szMoved(send) + szMoved.size(), 0);
+        std::cout << "getting max and total" << std::endl;
         uint szTotalRecv = std::accumulate(szMoved(recv),
                                            szMoved(recv) + szMoved.size(), 0);
+        std::cout << "getting max and total" << std::endl;
         uint szTotalMax = std::max(szTotalSend, szTotalRecv);
 
+        std::cout << "reallocate moved if necessary" << std::endl;
         // reallocate moved if necessary; for now, send and recv will be same size
         if (    szMaxMoved * partition.adjSize > state->gpd.xsMoved.size() ||
                 szMaxMoved * partition.adjSize < state->gpd.xsMoved.size() / 2) {
+            std::cout << "  > is necessary" << std::endl;
             uint szNew = szMaxMoved * partition.adjSize * 1.5;
             state->gpd.xsMoved = GPUArrayPair<float4>(szNew);
             state->gpd.vsMoved = GPUArrayPair<float4>(szNew);
@@ -682,6 +706,7 @@ void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild) {
             state->gpd.qsMoved = GPUArrayPair<float>(szNew);
         }
 
+        std::cout << "copySendAtoms... not bad" << std::endl;
         // copy OOB atoms to moved arrays
         auto idxsMoved = GPUArrayDeviceGlobal<uint>(szTotalMax);
         std::fill(szMoved(send), szMoved(send) + szMoved.size(), 0);
@@ -1013,7 +1038,7 @@ bool GridGPU::checkSorting(int gridIdx, int *gridIdxs,
         int gridLo = gridIdxs[i];
         int gridHi = gridIdxs[i+1];
         // std::cout << "hi for " << i << " is " << gridHi << std::endl;
-        for (int atomIdx=gridLo; atomIdx<gridHi; atomIdx++) {
+        for (int atomIdx = gridLo; atomIdx < gridHi; atomIdx++) {
             float4 posWhole = xs[atomIdx];
             float3 pos = make_float3(posWhole);
             int id = *(int *) &posWhole.w;

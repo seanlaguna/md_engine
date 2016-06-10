@@ -46,7 +46,7 @@ public:
     // returns size of adjacint directions if not adjacent
     __host__ __device__ int getAdjIdx(OOBDir dir) {
         int i = 0;
-        for (; i < adjDirs.size(); ++i) {
+        for (; i < adjSize; ++i) {
             if (dir == adjDirs[i]) { break; }
         }
         return i;

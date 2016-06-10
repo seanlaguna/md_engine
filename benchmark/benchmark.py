@@ -1,8 +1,10 @@
 import sys
 import matplotlib.pyplot as plt
 sys.path = sys.path + ['../build/python/build/lib.linux-x86_64-2.7']
-#from Sim import *
 from Sim import *
+
+MPI_Init()
+
 print FixPair
 state = State()
 state.deviceManager.setDevice(0)
@@ -53,3 +55,6 @@ print sumV / len(state.atoms)/3.0
 #print integVerlet.energyAverage('all')
 #perParticle = integVerlet.energyPerParticle()
 #print sum(perParticle) / len(perParticle)
+
+MPI_Finalize()
+

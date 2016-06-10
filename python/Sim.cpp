@@ -87,5 +87,6 @@ BOOST_PYTHON_MODULE(Sim) {
     export_DataSetTemperature();
     export_DataSetEnergy();
     export_DataSetBounds();
-
+    
+    export_MPI();   
 }

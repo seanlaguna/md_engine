@@ -5,7 +5,7 @@
 
 #include "Python.h"
 //#include "cutils_func.h"
-//#include "mpi.h"
+#include <mpi.h>
 
 #include "GPUArrayTex.h"
 #include "GPUArrayGlobal.h"
@@ -565,8 +565,11 @@ void hoomdBench() {
 
 }
 
-void testLJ() {
-    SHARED(State) state = SHARED(State) (new State());
+void testLJ()
+{
+    std::cout << "making state" << std::endl;
+    auto state = boost::shared_ptr<State>(new State());
+    std::cout << "donemaking state" << std::endl;
     state->devManager.setDevice(0);
     int baseLen = 20;
     state->shoutEvery = 1000;
@@ -579,28 +582,35 @@ void testLJ() {
     vector<double> intervals = {0, 1};
     vector<double> temps = {1.2, 1.2};
 
-    SHARED(FixNVTRescale) thermo = SHARED(FixNVTRescale) (new FixNVTRescale(state, "thermo", "all", intervals, temps, 100));
+    std::cout << "done with setup" << std::endl;
+
+    auto thermo = boost::shared_ptr<FixNVTRescale>(
+                new FixNVTRescale(state, "thermo", "all", intervals, temps, 100));
     state->activateFix(thermo);
-    //state->is2d = true;
-    //state->periodic[2] = false;
-   // for (int i=0; i<32; i++) {
-        //state->addAtom("handle", Vector(2*i+1, 1, 0), 0);
-     //   state->addAtom("handle", Vector(2*31+1-2*i, 1, 0), 0);
-   // }
-
-  //  for (int i=0; i<32; i++) {
-   //     state->addAtom("handle", Vector(2*i+1, 5, 0), 0);
- //   }
-    //state->addAtom("handle", Vector(1, 1, 0), 0);
-    //state->addAtom("handle", Vector(3.0, 1, 0), 0);
-
-   // state->addAtom("handle", Vector(5.0, 1, 0), 0);
-   // state->addAtom("handle", Vector(7.0, 1, 0), 0);
+    /*state->is2d = true;
+    state->periodic[2] = false;
+    for (int i=0; i<32; i++) {
+        state->addAtom("handle", Vector(2*i+1, 1, 0), 0);
+        state->addAtom("handle", Vector(2*31+1-2*i, 1, 0), 0);
+    }
+    for (int i=0; i<32; i++) {
+        state->addAtom("handle", Vector(2*i+1, 5, 0), 0);
+    }
+    state->addAtom("handle", Vector(1, 1, 0), 0);
+    state->addAtom("handle", Vector(3.0, 1, 0), 0);
+    state->addAtom("handle", Vector(5.0, 1, 0), 0);
+    state->addAtom("handle", Vector(7.0, 1, 0), 0);*/
     for (int i=0; i<baseLen; i++) {
         for (int j=0; j<baseLen; j++) {
             for (int k=0; k<baseLen; k++) {
-            //    state->addAtom("handle", Vector(i*mult + (rand() % 20)/40.0, j*mult + (rand() % 20)/40.0, 0), 0);
-                state->addAtom("handle", Vector(i*mult + (rand() % 20)/40.0, j*mult + (rand() % 20)/40.0, k*mult + (rand() % 20)/40.0), 0);
+                /*state->addAtom("handle", Vector(i*mult + (rand() % 20)/40.0,
+                                                  j*mult + (rand() % 20)/40.0, 
+                                                  0),
+                                 0);*/
+                state->addAtom("handle", Vector(i*mult + (float)(rand() % 20)/40.0,
+                                                j*mult + (float)(rand() % 20)/40.0,
+                                                k*mult + (float)(rand() % 20)/40.0),
+                               0);
             }
         }
     }
@@ -621,7 +631,7 @@ void testLJ() {
 
     IntegratorVerlet verlet(state);
     cout << state->atoms[0].pos << endl;
-    //verlet.run();
+    verlet.run(1);
     cout << state->atoms[0].pos << endl;
     cout << state->atoms[1].pos << endl;
     cout << state->atoms[0].force << endl;
@@ -658,19 +668,18 @@ void testGPUArrayTex() {
 
 int main(int argc, char **argv) {
 
-    //MPI_Init(&argc, &argv);
+    MPI_Init(&argc, &argv);
 
     if (argc > 1) {
         int arg = atoi(argv[1]);
         if (arg==0) {
-    //        testDihedral();
+            //testDihedral();
             testLJ();
-            // testLJ();
-            // hoomdBench();
+            //hoomdBench();
             //testBondHarmonicGridToGPU();
         } else if (arg==1) {
-//             testPair();
-//             testFire();
+            //testPair();
+            //testFire();
         test_charge_ewald();
         } else if (arg==2) {
             testBondHarmonicGrid();
@@ -683,9 +692,9 @@ int main(int argc, char **argv) {
     //testLJ();
     //testWallHarmonic();
     //testRead();
-//      testGPUArrayTex();
-//    testCharge();
-//      testPair();
+    //testGPUArrayTex();
+    //testCharge();
+    //testPair();
     return 0;
     //testSum();
     //return 0;
@@ -716,9 +725,9 @@ int main(int argc, char **argv) {
     //IMPORTANT - NEIGHBORLISTING BREAKS WHEN YOU GO TO 3D
     nonbond->setParameter("sig", "handle", "handle", 1);
     nonbond->setParameter("eps", "handle", "handle", 1);
-  //  state->addAtom("handle", Vector(2, 2, 0));
-  //  state->addAtom("handle", Vector(4, 2.7, 0));
-  //  state->atoms[0].vel = Vector(2, 0, 0);
+    //state->addAtom("handle", Vector(2, 2, 0));
+    //state->addAtom("handle", Vector(4, 2.7, 0));
+    //state->atoms[0].vel = Vector(2, 0, 0);
 
     for (int i=0; i<baseLen; i++) {
         for (int j=0; j<baseLen; j++) {
@@ -750,7 +759,7 @@ int main(int argc, char **argv) {
     //state->integrator.run(1000);
     //state->integrator.test();
 
-    //MPI_Finalize();
+    MPI_Finalize();
 
 }
 
