@@ -95,7 +95,7 @@ public:
         bool oobU = diff.y >= sides[1].y;
         bool oobI = diff.z < 0;
         bool oobO = diff.z >= sides[2].z;
-        int ret = 0;
+        uint8_t ret = 0;
         if (oobL) { ret |= 0; } else if (oobR) { ret |= 2; } else { ret |= 1; }
         if (oobD) { ret |= 0; } else if (oobU) { ret |= 8; } else { ret |= 4; }
         if (oobI) { ret |= 0; } else if (oobO) { ret |= 32;} else { ret |= 16;}

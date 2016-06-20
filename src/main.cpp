@@ -192,42 +192,45 @@ void testPair() {
 }
 
 
-void test_charge_ewald() {
-    SHARED(State) state = SHARED(State) (new State());
+void test_charge_ewald()
+{
+    boost::shared_ptr<State> state(new State());
     state->shoutEvery = 1000;
     int L = 20.0;
 
-    state->bounds = Bounds(state, Vector(0, 0, 0), Vector(L,L,L));
+    state->bounds = Bounds(state, Vector(0, 0, 0), Vector(L, L, L));
     state->rCut = 5.0;
-    state->grid = AtomGrid(state.get(), L,L,L);
+    state->grid = AtomGrid(state.get(), L, L, L);
     state->atomParams.addSpecies("handle", 2);
-    state->addAtom("handle",Vector(0.5*L, 0.5*L, 0.5*L), 0);
-    state->addAtom("handle",Vector(0.75*L, 0.5*L, 0.5*L), 0);
+    state->addAtom("handle", Vector(0.50*L, 0.5*L, 0.5*L), 0);
+    state->addAtom("handle", Vector(0.75*L, 0.5*L, 0.5*L), 0);
 
-    //charge
-    SHARED(FixChargeEwald) charge (new FixChargeEwald(state, "charge","all"));
-    charge->setParameters(64,1.0,3);
-    //charge->setParameters(32,3.0);
+    //cut
+    boost::shared_ptr<FixLJCut> cut(new FixLJCut(state, "cut"));
 
-    state->atoms[0].q=1.0;
-    state->atoms[1].q=-1.0;
-    state->activateFix(charge);
+    state->atoms[0].q = +1.0;
+    state->atoms[1].q = -1.0;
+    state->activateFix(cut);
 
-    state->dt=0.0001;
+    state->dt = 0.0001;
     IntegratorVerlet integrator(state);
-    //charge->compute();
     integrator.run(1);
 
     ofstream ofs;
-    ofs.open("test_pair.dat",ios::out );
-    for (int i=0;i<1000-10;i++){
-        state->atoms[0].pos[0]=0.5*L+i*0.25*L/1000.0;
-        state->atoms[0].vel[0]=0.0;
-        state->atoms[1].pos[0]=0.75*L;
-        state->atoms[1].vel[0]=0.0;
+    ofs.open("test_pair.dat", ios::out);
+    for (int i = 0; i < (1000-10); i++) {
+        state->atoms[0].pos[0] = 0.5*L + i*0.25*L/1000.0;
+        state->atoms[0].vel[0] = 0.0;
+        state->atoms[1].pos[0] = 0.75*L;
+        state->atoms[1].vel[0] = 0.0;
+        cout << state->atoms[0].pos[0]   << " " << state->atoms[1].pos[0]   << " "
+             << state->atoms[0].force[0] << " " << state->atoms[1].force[0] << endl;
         integrator.run(1);
-        //cout<<state->atoms[0].pos[0]<<' '<<state->atoms[1].pos[0]<<' '<<state->atoms[0].force[0]<<' '<<state->atoms[1].force[0]<<'\n';
-        ofs<<state->atoms[0].pos[0]<<' '<<state->atoms[1].pos[0]<<' '<<state->atoms[0].force[0]<<' '<<state->atoms[1].force[0]<<'\n';
+        cout << state->atoms[0].pos[0]   << " " << state->atoms[1].pos[0]   << " "
+             << state->atoms[0].force[0] << " " << state->atoms[1].force[0] << endl;
+
+        ofs  << state->atoms[0].pos[0]   << " " << state->atoms[1].pos[0]   << " "
+             << state->atoms[0].force[0] << " " << state->atoms[1].force[0] << endl;
     }
     ofs.close();
 }
@@ -604,7 +607,7 @@ void testLJ()
         for (int j=0; j<baseLen; j++) {
             for (int k=0; k<baseLen; k++) {
                 /*state->addAtom("handle", Vector(i*mult + (rand() % 20)/40.0,
-                                                  j*mult + (rand() % 20)/40.0, 
+                                                  j*mult + (rand() % 20)/40.0,
                                                   0),
                                  0);*/
                 state->addAtom("handle", Vector(i*mult + (float)(rand() % 20)/40.0,
@@ -631,7 +634,7 @@ void testLJ()
 
     IntegratorVerlet verlet(state);
     cout << state->atoms[0].pos << endl;
-    verlet.run(1);
+    verlet.run(64);
     cout << state->atoms[0].pos << endl;
     cout << state->atoms[1].pos << endl;
     cout << state->atoms[0].force << endl;
@@ -640,7 +643,7 @@ void testLJ()
     for (Atom &a : state->atoms) {
         sumKe += a.kinetic();
     }
-    cout << "temp  is " << (sumKe*(2.0/3.0)/state->atoms.size()) << endl;
+    cout << "temp is " << (sumKe*(2.0/3.0)/state->atoms.size()) << endl;
     //SHARED(FixBondHarmonic) harmonic = SHARED(FixBondHarmonic) (new FixBondHarmonic(state, "harmonic"));
     //state->activateFix(harmonic);
     //harmonic->createBond(&state->atoms[0], &state->atoms[1], 1, 2);
@@ -668,7 +671,7 @@ void testGPUArrayTex() {
 
 int main(int argc, char **argv) {
 
-    MPI_Init(&argc, &argv);
+    MPI_Init(NULL, NULL);
 
     if (argc > 1) {
         int arg = atoi(argv[1]);
@@ -680,7 +683,7 @@ int main(int argc, char **argv) {
         } else if (arg==1) {
             //testPair();
             //testFire();
-        test_charge_ewald();
+            test_charge_ewald();
         } else if (arg==2) {
             testBondHarmonicGrid();
             //sean put your test stuff here
@@ -695,6 +698,7 @@ int main(int argc, char **argv) {
     //testGPUArrayTex();
     //testCharge();
     //testPair();
+    MPI_Finalize();
     return 0;
     //testSum();
     //return 0;
@@ -758,8 +762,7 @@ int main(int argc, char **argv) {
     //harmonic->createBond(&state->atoms[0], &state->atoms[1], 1, 1);
     //state->integrator.run(1000);
     //state->integrator.test();
-
     MPI_Finalize();
-
+    return 0;
 }
 

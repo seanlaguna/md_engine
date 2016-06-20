@@ -1,13 +1,20 @@
 #pragma once
-#ifndef CUDA_MPI_LOL_H
-#define CUDA_MPI_LOL_H
+#ifndef MDENGINE_CUDA_MPI_H
+#define MDENGINE_CUDA_MPI_H
 
 #include <mpi.h>
 
-void MPI_Sendrecv_gpu(const void *sendbuf, void *recvbuf, 
-        			  int sendCount, int recvCount, 
+void MPI_Sendrecv_gpu(const void *sendbuf, void *recvbuf,
+                      int sendCount, int recvCount,
                       MPI_Datatype type, int rank)
 {
+    int myrank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+    std::cout << "sendrecv with my rank: " << myrank << " and other's rank " << rank
+              << " with sizes " << sendCount << ", " << recvCount << std::endl;
+    //if (sendCount == 0 && recvCount == 0) {
+    //    return;
+    //}
     MPI_Request requests[2];
     MPI_Status statuses[2];
     MPI_Isend(sendbuf, sendCount, type, rank, 0,

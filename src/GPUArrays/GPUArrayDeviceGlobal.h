@@ -42,7 +42,7 @@ public:
     {
         allocate();
         CUCHECK(cudaMemcpy(ptr, other.ptr, n*sizeof(T),
-                                                cudaMemcpyDeviceToDevice));
+                cudaMemcpyDeviceToDevice));
     }
 
     //! Move constructor
@@ -140,10 +140,10 @@ public:
         T *pointer = (T*)ptr;
         if (stream) {
             CUCHECK(cudaMemcpyAsync(copyTo, pointer+offset, nElements*sizeof(T),
-                                            cudaMemcpyDeviceToHost, stream));
+                                    cudaMemcpyDeviceToHost, stream));
         } else {
             CUCHECK(cudaMemcpy(copyTo, pointer+offset, nElements*sizeof(T),
-                                                    cudaMemcpyDeviceToHost));
+                               cudaMemcpyDeviceToHost));
         }
     }
 
@@ -216,7 +216,9 @@ public:
 
 private:
     //! Allocate memory
-    void allocate() { CUCHECK(cudaMalloc(&ptr, n * sizeof(T))); cap = size(); }
+    void allocate() {
+        CUCHECK(cudaMalloc(&ptr, n * sizeof(T))); cap = size();
+    }
 
     //! Deallocate memory
     void deallocate() {

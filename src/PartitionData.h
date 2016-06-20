@@ -27,7 +27,8 @@ public:
             : nDims(3)
     { }
     PartitionData(bool is2d, bool periodic_in[3], BoundsGPU boundsLocalGPU_in)
-            : nDims(is2d? 2 : 3), boundsLocalGPU(boundsLocalGPU_in)
+            : boundsLocalGPU(boundsLocalGPU_in),
+              nDims(is2d? 2 : 3)
     {
         int nRanks;
         MPI_Comm_size(MPI_COMM_WORLD, &nRanks);
@@ -47,7 +48,7 @@ public:
     __host__ __device__ int getAdjIdx(OOBDir dir) {
         int i = 0;
         for (; i < adjSize; ++i) {
-            if (dir == adjDirs[i]) { break; }
+            if (dir == adjDirsRaw[i]) { break; }
         }
         return i;
     }
@@ -56,8 +57,8 @@ public:
     // returns size of adjacint directions if not adjacent
     __host__ __device__ int dirToRank(OOBDir dir) {
         int i = getAdjIdx(dir);
-        if (i < adjDirs.size()) {
-            return adjDirs[i];
+        if (i < adjSize) {
+            return adjRanksRaw[i];
         } else {
             return i;
         }
@@ -65,8 +66,10 @@ public:
 
 public:
     // todo: make GPU arrays
-    std::vector<int> adjRanks;
-    std::vector<int> adjDirs;
+    GPUArrayGlobal<int> adjRanks;
+    int *adjRanksRaw;
+    GPUArrayGlobal<OOBDir> adjDirs;
+    OOBDir *adjDirsRaw;
     uint16_t adjSize;
     BoundsGPU boundsLocalGPU; //!< Bounds on the GPU
 
@@ -92,12 +95,14 @@ private:
 
         int coordsAdj[nDims];
         int rankAdj;
+        std::vector<int> adjRanksCpu;
+        std::vector<OOBDir> adjDirsCpu;
         for (int offx : { -1, 0, 1 }) {
              coordsAdj[0] = coords[0] + offx;
              for (int offy : { -1, 0, 1 }) {
                   coordsAdj[1] = coords[1] + offy;
                   for (int offz : { -1, 0, 1 }) {
-                       if (offx == offy == offz == 0) { continue; }
+                       if (offx == 0 && offy == 0 && offz == 0) { continue; }
                        if (nDims == 2 && offz != 0) { continue; }
                        if (nDims == 3) {
                             coordsAdj[2] = coords[2] + offz;
@@ -112,14 +117,20 @@ private:
                        }
                        if (skip) { continue; }
                        MPI_Cart_rank(comm, coordsAdj, &rankAdj);
-                       adjRanks.push_back(rankAdj);
+                       adjRanksCpu.push_back(rankAdj);
                        int offs[3] = { offx, offy, offz };
-                       adjDirs.push_back(offsToDir(offs));
+                       adjDirsCpu.push_back(offsToDir(offs));
                   }  // end offz
              }  // end offy
         }  // end offx
-        std::sort(adjRanks.begin(), adjRanks.end());
-        std::sort(adjDirs.begin(), adjDirs.end());
+        std::sort(adjRanksCpu.begin(), adjRanksCpu.end());
+        adjRanks = adjRanksCpu;
+        adjRanks.dataToDevice();
+        adjRanksRaw = adjRanks.getDevData();
+        std::sort(adjDirsCpu.begin(), adjDirsCpu.end());
+        adjDirs = adjDirsCpu;
+        adjDirs.dataToDevice();
+        adjDirsRaw = adjDirs.getDevData();
     }
 
 private:

@@ -59,7 +59,7 @@ public:
     GPUArrayPair<float4> fsMoved;
     GPUArrayPair<uint> idsMoved;
     GPUArrayPair<float> qsMoved;
-    
+
     GPUArrayPair<float4> xsGhost;
     GPUArrayPair<float4> vsGhost;
     GPUArrayPair<float4> fsGhost;

@@ -5,6 +5,7 @@
 #define DEFAULT_FILL INT_MAX
 
 #include <climits>
+#include <iostream>
 #include <map>
 #include <string>
 #include <vector>

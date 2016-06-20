@@ -299,7 +299,7 @@ bool State::prepareForRun()
     int nRanks;
     MPI_Comm_size(MPI_COMM_WORLD, &nRanks);
 
-    std::cout << "sizeof atoms: " << atoms.size() << std::endl;
+    std::cout << "sizeof atoms (before delete): " << atoms.size() << std::endl;
 
     // gpupar sort atoms by x-value, then remove the ones not local
     std::sort(atoms.begin(), atoms.end(),
@@ -315,25 +315,28 @@ bool State::prepareForRun()
                   }
               }
     );
-    auto head = std::next(atoms.begin(), (atoms.size() * (rank)) / nRanks);
-    auto tail = std::next(atoms.begin(), (atoms.size() * (rank+1)) / nRanks);
+    uint posHead = (atoms.size() * static_cast<float>(rank+0)) / nRanks;
+    uint posTail = (atoms.size() * static_cast<float>(rank+1)) / nRanks;
+    std::cout << "posHead: " << posHead << ", posTail: " << posTail << std::endl;
+    auto head = std::next(atoms.begin(), posHead);
+    auto tail = std::next(atoms.begin(), posTail);
     float boundsLo = (rank == 0) ? (bounds.lo[0])  \
                                  : (head->pos[0] + (head+1)->pos[0]) / 2;
     float boundsHi = (rank == nRanks-1) ? (bounds.hi[0])  \
                                  : (tail->pos[0] + (tail+1)->pos[0]) / 2;
+
     std::cout << "local bounds in x: " << boundsLo << " " << boundsHi << std::endl;
-    if (rank == 0 && nRanks == 2) {
-        atoms.erase(atoms.begin() + atoms.size()/2, atoms.end());
-    } else if (rank == 1 && nRanks == 2) {
-        atoms.erase(atoms.begin(), atoms.begin() + atoms.size()/2);
-    } else if (nRanks > 2) {
-        std::cerr << "Cannot be run with more than 2 ranks yet" << std::endl;
+    if (rank != nRanks-1) { atoms.erase(tail, atoms.end()); }
+    if (rank != 0) { atoms.erase(atoms.begin(), head); }
+
+    if (nRanks > 4) {
+        std::cerr << "Cannot be run with more than 4 ranks yet" << std::endl;
         std::exit(EXIT_FAILURE);
     }
 
     int nAtoms = atoms.size();
 
-    std::cout << "sizeof atoms: " << atoms.size() << std::endl;
+    std::cout << "sizeof atoms (after delete): " << atoms.size() << std::endl;
 
     // fixes have already prepared by the time the integrator calls this prepare
     std::vector<float4> xs_vec, vs_vec, fs_vec, fsLast_vec;
@@ -393,13 +396,13 @@ bool State::prepareForRun()
                                          boundsLocalGPU.sides[2].z);
     boundsLocalGPU.invRectLen = (float)1.0 / boundsLocalGPU.rectLen;
 
-    std::cout << "bounds: " << boundsGPU.sides[0].x << std::endl;
+    std::cout << "bounds(global): " << boundsGPU.sides[0].x << std::endl;
     std::cout << "bounds: " << boundsGPU.sides[1].y << std::endl;
     std::cout << "bounds: " << boundsGPU.sides[2].z << std::endl;
     std::cout << "bounds: " << boundsGPU.lo.x << std::endl;
     std::cout << "bounds: " << boundsGPU.lo.y << std::endl;
     std::cout << "bounds: " << boundsGPU.lo.z << std::endl;
-    std::cout << "bounds: " << boundsLocalGPU.sides[0].x << std::endl;
+    std::cout << "bounds(local): " << boundsLocalGPU.sides[0].x << std::endl;
     std::cout << "bounds: " << boundsLocalGPU.sides[1].y << std::endl;
     std::cout << "bounds: " << boundsLocalGPU.sides[2].z << std::endl;
     std::cout << "bounds: " << boundsLocalGPU.lo.x << std::endl;
@@ -407,6 +410,12 @@ bool State::prepareForRun()
     std::cout << "bounds: " << boundsLocalGPU.lo.z << std::endl;
 
     gpd.partition = PartitionData(is2d, periodic, boundsLocalGPU);
+
+    gpd.xsMoved = GPUArrayPair<float4>(1);
+    gpd.vsMoved = GPUArrayPair<float4>(1);
+    gpd.fsMoved = GPUArrayPair<float4>(1);
+    gpd.idsMoved = GPUArrayPair<uint>(1);
+    gpd.qsMoved = GPUArrayPair<float>(1);
 
     float maxRCut = getMaxRCut();
     gridGPU = grid.makeGPU(maxRCut);  // uses os, ns, ds, dsOrig from AtomGrid

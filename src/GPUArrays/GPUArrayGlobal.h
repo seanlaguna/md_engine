@@ -15,8 +15,8 @@
  * move the data from the CPU to the GPU and back again.
  */
 template <typename T>
-class GPUArrayGlobal : public GPUArray {
-
+class GPUArrayGlobal : public GPUArray
+{
 public:
     //! Constructor
     /*!
@@ -32,7 +32,9 @@ public:
      * and the GPU.
      */
     explicit GPUArrayGlobal(int size_)
-        : h_data(std::vector<T>(size_,T())), d_data(GPUArrayDeviceGlobal<T>(size_)) {}
+        : h_data(std::vector<T>(size_,T())),
+          d_data(GPUArrayDeviceGlobal<T>(size_))
+    {}
 
     //! Copy from vector constructor
     /*!
@@ -40,7 +42,8 @@ public:
      *
      * Constructor setting the CPU data array with the specified vector.
      */
-    explicit GPUArrayGlobal(std::vector<T> const &vals) {
+    explicit GPUArrayGlobal(std::vector<T> const &vals)
+    {
         h_data = vals;
         d_data = GPUArrayDeviceGlobal<T>(h_data.size());
     }
@@ -88,17 +91,20 @@ public:
     size_t size() const { return h_data.size(); }
 
     //! Send data from CPU to GPU
-    void dataToDevice() {
+    void dataToDevice()
+    {
         d_data.set(h_data.data());
     }
 
     //! Send data from GPU to CPU asynchronously
-    void dataToHostAsync(cudaStream_t stream) {
+    void dataToHostAsync(cudaStream_t stream)
+    {
         d_data.get(h_data.data(), stream);
     }
 
     //! Send data from GPU to CPU synchronously
-    void dataToHost() {
+    void dataToHost()
+    {
         //eeh, want to deal with the case where data originates on the device,
         //which is a real case, so removed checked on whether data is on device
         //or not
@@ -106,17 +112,20 @@ public:
     }
 
     //! Copy data to GPU array
-    void copyToDeviceArray(void *dest) {
+    void copyToDeviceArray(void *dest)
+    {
         d_data.copyToDeviceArray(dest);
     }
 
     //! Return pointer to GPU data array
-    T *getDevData() {
+    T *getDevData()
+    {
         return d_data.data();
     }
 
     //! Set Memory by value
-    void memsetByVal(T val) {
+    void memsetByVal(T val)
+    {
         d_data.memsetByVal(val);
     }
 
