@@ -62,7 +62,7 @@ IntegratorVerlet::IntegratorVerlet(State *statePtr)
 /*
 template <class K, class T, int NPERTHREAD>
 __global__ void NAME (K *dest, T *src, int n, int warpSize) {
-    extern __shared__ K tmp[]; 
+    extern __shared__ K tmp[];
     const int copyBaseIdx = blockDim.x*blockIdx.x * NPERTHREAD + threadIdx.x;
     //printf("idx %d gets base %d\n", GETIDX(), copyBaseIdx);
     const int copyIncrement = blockDim.x;
@@ -170,6 +170,16 @@ void IntegratorVerlet::postForce()
             state->gpd.vs.getDevData(),
             state->gpd.fs.getDevData(),
             state->dt);
+    std::cout << "atom 0 has pos: ("
+              << state->gpd.xs.h_data[0].x << ","
+              << state->gpd.xs.h_data[0].y << ","
+              << state->gpd.xs.h_data[0].z << "); velocity: ("
+              << state->gpd.vs.h_data[0].x << ","
+              << state->gpd.vs.h_data[0].y << ","
+              << state->gpd.vs.h_data[0].z << "); force: ("
+              << state->gpd.fs.h_data[0].x << ","
+              << state->gpd.fs.h_data[0].y << ","
+              << state->gpd.fs.h_data[0].z << ")" << std::endl;
 }
 
 void export_IntegratorVerlet()

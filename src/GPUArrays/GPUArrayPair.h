@@ -22,8 +22,8 @@
  *       Assert() calls would help, I think.
  */
 template <typename T>
-class GPUArrayPair : public GPUArray {
-
+class GPUArrayPair : public GPUArray
+{
 private:
     //! Set the CPU data of the Array
     /*!
@@ -33,7 +33,8 @@ private:
      *
      * \todo Do we really need this function?
      */
-    void setHost(std::vector<T> &vals) {
+    void setHost(std::vector<T> &vals)
+    {
         h_data = vals;
     }
 public:
@@ -43,15 +44,35 @@ public:
     /*!
      * \return Newly activated index
      */
-    unsigned int switchIdx() {
+    unsigned int switchIdx()
+    {
         activeIdx = !activeIdx;
         return activeIdx;
     }
+
     std::vector<T> h_data; //!< CPU data
     GPUArrayDeviceGlobal<T> d_data[2]; //!< Pair of GPU data
 
     //! Default constructor */
-    GPUArrayPair() : GPUArray(), activeIdx(0) {}
+    GPUArrayPair()
+            : GPUArray(), activeIdx(0)
+    { }
+
+    //! Constructor
+    /*!
+     * \param n size of newly-constructed arrays
+     *
+     * This constructor allocates enough memory for the passed size.
+     *
+     * \todo Make this constructor explicit
+     */
+    GPUArrayPair(size_t n)
+            : activeIdx(0), h_data(std::vector<T>(n))
+    {
+        for (int i=0; i<2; i++) {
+            d_data[i] = GPUArrayDeviceGlobal<T>(n);
+        }
+    }
 
     //! Constructor
     /*!
@@ -62,11 +83,15 @@ public:
      *
      * \todo Make this constructor explicit
      */
-    GPUArrayPair(std::vector<T> &vals) : activeIdx(0) {
+    GPUArrayPair(std::vector<T> &vals)
+            : activeIdx(0)
+    {
         set(vals);
+        /*
         for (int i=0; i<2; i++) {
             d_data[i] = GPUArrayDeviceGlobal<T>(vals.size());
         }
+        */
     }
 
     //! Return pointer to GPU data
@@ -78,17 +103,13 @@ public:
      * \todo Is it possible to make activeIdx the default. Maybe for n < 0
      *       and have n = -1 the default?
      */
-    T *getDevData(int n) {
-        return d_data[n].data();
-    }
+    T *getDevData(int n) { return d_data[n].data(); }
 
     //! Return pointer to the active GPU data
     /*!
      * \return Pointer to the memory location on the GPU device
      */
-    T *getDevData() {
-        return getDevData(activeIdx);
-    }
+    T *getDevData() { return getDevData(activeIdx); }
 
     //! Set the CPU data
     /*!
@@ -98,7 +119,8 @@ public:
      * Sets the data of the CPU. If necessary, the GPU memory is
      * reallocated. Note that this operation may delete the GPU memory.
      */
-    bool set(std::vector<T> &other) {
+    bool set(std::vector<T> &other)
+    {
         if (other.size() < size()) {
             setHost(other);
             return true;
@@ -109,7 +131,6 @@ public:
             setHost(other);
         }
         return false;
-
     }
 
     //! Get the number of elements stored
@@ -125,35 +146,37 @@ public:
      *
      * This is a convenience function/operator and behaves like getDevData()
      */
-    T *operator ()(int n) {
-        return getDevData(n);
-    }
+    T *operator()(int n) { return getDevData(n); }
 
     //! Copy data from CPU memory to active GPU memory
-    void dataToDevice() {
-        CUCHECK(cudaMemcpy(d_data[activeIdx].data(), h_data.data(), size()*sizeof(T), cudaMemcpyHostToDevice ));
+    void dataToDevice()
+    {
+        CUCHECK( cudaMemcpy(d_data[activeIdx].data(), h_data.data(),
+                            size()*sizeof(T), cudaMemcpyHostToDevice) );
 
     }
 
     //! Copy data from active GPU memory to CPU memory
-    void dataToHost() {
-        dataToHost(activeIdx);
-    }
+    void dataToHost() { dataToHost(activeIdx); }
 
     //! Copy data from a specific GPU memory to CPU memory
     /*!
      * \param idx Index specifying which GPU memory to access
      */
-    void dataToHost(int idx) {
-        CUCHECK(cudaMemcpy(h_data.data(), d_data[idx].data(), size()*sizeof(T), cudaMemcpyDeviceToHost));
+    void dataToHost(int idx)
+    {
+        CUCHECK( cudaMemcpy(h_data.data(), d_data[idx].data(),
+                           size()*sizeof(T), cudaMemcpyDeviceToHost) );
     }
 
     //! Copy data from active GPU memory to another GPU memory location
     /*!
      * \param dest Pointer to GPU memory; destination for copy.
      */
-    void copyToDeviceArray(void *dest) {
-        CUCHECK(cudaMemcpy(dest, d_data[activeIdx].data(), size()*sizeof(T), cudaMemcpyDeviceToDevice));
+    void copyToDeviceArray(void *dest)
+    {
+        CUCHECK( cudaMemcpy(dest, d_data[activeIdx].data(),
+                            size()*sizeof(T), cudaMemcpyDeviceToDevice) );
     }
 
     //! Copy data between the two GPU memories
@@ -164,7 +187,8 @@ public:
      */
     bool copyBetweenArrays(int dst, int src) {
         if (dst != src) {
-            CUCHECK(cudaMemcpy(d_data[dst].data(), d_data[src].data(), size()*sizeof(T), cudaMemcpyDeviceToDevice));
+            CUCHECK( cudaMemcpy(d_data[dst].data(), d_data[src].data(),
+                                size()*sizeof(T), cudaMemcpyDeviceToDevice) );
             return true;
         }
         return false;
@@ -175,17 +199,13 @@ public:
      * \param val Value to set the elements to
      * \param idx Index of the GPU memory
      */
-    void memsetByVal(T val, int idx) {
-        d_data[idx].memsetByVal(val);
-    }
+    void memsetByVal(T val, int idx) { d_data[idx].memsetByVal(val); }
 
     //! Set all elements of the active GPU memory to a specifiv value
     /*!
      * \param val Value to set the elements to
      */
-    void memsetByVal(T val) {
-        memsetByVal(val, activeIdx);
-    }
+    void memsetByVal(T val) { memsetByVal(val, activeIdx); }
 };
 
 #endif

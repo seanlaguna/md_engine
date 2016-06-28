@@ -339,7 +339,6 @@ float State::getMaxRCut() {
 }
 
 
-
 void State::initializeGrid() {
     double maxRCut = getMaxRCut();// ALSO PADDING PLS
     cout << "cut is " << maxRCut << endl;
@@ -348,11 +347,12 @@ void State::initializeGrid() {
 
 }
 
-bool State::prepareForRun() {
-    // fixes have already prepared by the time the integrator calls this prepare
-    std::vector<float4> xs_vec, vs_vec, fs_vec;
-    std::vector<uint> ids;
-    std::vector<float> qs;
+bool State::prepareForRun()
+{
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    int nRanks;
+    MPI_Comm_size(MPI_COMM_WORLD, &nRanks);
 
     requiresCharges = false;
     vector<bool> requireCharges = LISTMAP(Fix *, bool, fix, fixes, fix->requiresCharges);
@@ -366,9 +366,45 @@ bool State::prepareForRun() {
         computeVirials = *max_element(requireVirials.begin(), requireVirials.end());
     }
 
+    // gpupar sort atoms by x-value, then remove the ones not local
+    std::sort(atoms.begin(), atoms.end(),
+              [](const Atom &a, const Atom &b) {
+                  if (a.pos[0] == b.pos[0]) {
+                      if (a.pos[1] == b.pos[1]) {
+                          return (a.pos[2] < b.pos[2]);
+                      } else {
+                          return (a.pos[1] < b.pos[1]);
+                      }
+                  } else {
+                      return (a.pos[0] < b.pos[0]);
+                  }
+              }
+    );
+    uint posHead = (atoms.size() * static_cast<float>(rank+0)) / nRanks;
+    uint posTail = (atoms.size() * static_cast<float>(rank+1)) / nRanks;
+    std::cout << "posHead: " << posHead << ", posTail: " << posTail << std::endl;
+    auto head = std::next(atoms.begin(), posHead);
+    auto tail = std::next(atoms.begin(), posTail);
+    float boundsLo = (rank == 0) ? (bounds.lo[0])  \
+                                 : (head->pos[0] + (head+1)->pos[0]) / 2;
+    float boundsHi = (rank == nRanks-1) ? (bounds.lo[0] + bounds.rectComponents[0])  \
+                                 : (tail->pos[0] + (tail+1)->pos[0]) / 2;
 
+    std::cout << "local bounds in x: " << boundsLo << " " << boundsHi << std::endl;
+    if (rank != nRanks-1) { atoms.erase(tail, atoms.end()); }
+    if (rank != 0) { atoms.erase(atoms.begin(), head); }
+
+    if (nRanks > 4) {
+        std::cerr << "Cannot be run with more than 4 ranks yet" << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
 
     int nAtoms = atoms.size();
+
+    // fixes have already prepared by the time the integrator calls this prepare
+    std::vector<float4> xs_vec, vs_vec, fs_vec;
+    std::vector<uint> ids;
+    std::vector<float> qs;
 
     xs_vec.reserve(nAtoms);
     vs_vec.reserve(nAtoms);
@@ -412,10 +448,11 @@ bool State::prepareForRun() {
 
     gpd.idToIdxsOnCopy = idToIdxs_vec;
     gpd.idToIdxs.set(idToIdxs_vec);
+
     boundsGPU = bounds.makeGPU();
+
     float maxRCut = getMaxRCut();
     initializeGrid();
-    //gridGPU = grid.makeGPU(maxRCut);  // uses os, ns, ds, dsOrig from AtomGrid
 
     gpd.xsBuffer = GPUArrayGlobal<float4>(nAtoms);
     gpd.vsBuffer = GPUArrayGlobal<float4>(nAtoms);
@@ -423,10 +460,31 @@ bool State::prepareForRun() {
     gpd.idsBuffer = GPUArrayGlobal<uint>(nAtoms);
     gpd.perParticleEng = GPUArrayGlobal<float>(nAtoms);
 
+    // gpupar local bounds; sides are relative to lo, so need to correct
+    BoundsGPU boundsLocalGPU = bounds.makeGPU();
+    boundsLocalGPU.lo.x = boundsLo;
+    boundsLocalGPU.rectComponents.x = boundsHi - boundsLo;
+    assert(boundsLocalGPU.rectComponents.x > 0.0);
+    boundsLocalGPU.invRectLen = (float)1.0 /
+                                make_float3(boundsLocalGPU.rectComponents.x,
+                                            boundsLocalGPU.rectComponents.y,
+                                            boundsLocalGPU.rectComponents.z);
+
+    // info for the partitions among GPUs
+    gpd.partition = PartitionData(is2d, periodic, boundsLocalGPU);
+
+    // arrays for atoms that have exited local bounds
+    gpd.xsMoved = GPUArrayPair<float4>(1);
+    gpd.vsMoved = GPUArrayPair<float4>(1);
+    gpd.fsMoved = GPUArrayPair<float4>(1);
+    gpd.idsMoved = GPUArrayPair<uint>(1);
+    gpd.qsMoved = GPUArrayPair<float>(1);
+
     return true;
 }
 
-void copyAsyncWithInstruc(State *state, std::function<void (int64_t )> cb, int64_t turn) {
+void copyAsyncWithInstruc(State *state, std::function<void (int64_t)> cb, int64_t turn)
+{
     cudaStream_t stream;
     CUCHECK(cudaStreamCreate(&stream));
     state->gpd.xsBuffer.dataToHostAsync(stream);

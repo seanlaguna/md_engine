@@ -411,8 +411,6 @@ void testBondHarmonicGrid() {
 }
 
 
-
-
 void testBondHarmonicGridToGPU() {
     SHARED(State) state = SHARED(State) (new State());
     state->is2d = true;
@@ -554,6 +552,30 @@ void hoomdBench() {
 
 }
 
+void testOrbit()
+{
+    boost::shared_ptr<State> state = boost::shared_ptr<State>(new State());
+    state->bounds = Bounds(state, Vector(0, 0, 0), Vector(50, 50, 50));
+
+    state->rCut = 3.5;
+    state->padding = 0.5;
+    state->atomParams.addSpecies("handle", 2);
+
+    // add atoms like this
+    state->addAtom("handle", Vector(8, 1, 0), 0);
+    state->addAtom("handle", Vector(42, 1, 0), 0);
+    // can set velocity directly
+    state->atoms[0].vel = Vector(1, 0, 0);
+    state->atoms[1].vel = Vector(-1, 0, 0);
+    // how often grid checks to build
+    state->periodicInterval = 9;
+    // timestep size
+    state->dt = 0.005;
+
+    IntegratorVerlet verlet(state.get());
+    verlet.run(200);
+}
+
 void testLJ() {
     SHARED(State) state = SHARED(State) (new State());
     state->devManager.setDevice(0);
@@ -645,26 +667,24 @@ void testGPUArrayTex() {
 }
 
 
-
-
-int main(int argc, char **argv) {
-
-    //MPI_Init(&argc, &argv);
+int main(int argc, char **argv)
+{
+    MPI_Init(&argc, &argv);
 
     if (argc > 1) {
         int arg = atoi(argv[1]);
         if (arg==0) {
-    //        testDihedral();
+            //testDihedral();
             testLJ();
-            // testLJ();
-            // hoomdBench();
+            //testLJ();
+            //hoomdBench();
             //testBondHarmonicGridToGPU();
         } else if (arg==1) {
-//             testPair();
-//             testFire();
-        test_charge_ewald();
+            //testPair();
+            //testFire();
+            test_charge_ewald();
         } else if (arg==2) {
-            testBondHarmonicGrid();
+            testOrbit();
             //sean put your test stuff here
         }
     } else {
@@ -674,9 +694,11 @@ int main(int argc, char **argv) {
     //testLJ();
     //testWallHarmonic();
     //testRead();
-//      testGPUArrayTex();
-//    testCharge();
-//      testPair();
+    //testGPUArrayTex();
+    //testCharge();
+    //testPair();
+
+    MPI_Finalize();
     return 0;
     //testSum();
     //return 0;
@@ -706,9 +728,9 @@ int main(int argc, char **argv) {
     //IMPORTANT - NEIGHBORLISTING BREAKS WHEN YOU GO TO 3D
     nonbond->setParameter("sig", "handle", "handle", 1);
     nonbond->setParameter("eps", "handle", "handle", 1);
-  //  state->addAtom("handle", Vector(2, 2, 0));
-  //  state->addAtom("handle", Vector(4, 2.7, 0));
-  //  state->atoms[0].vel = Vector(2, 0, 0);
+    //state->addAtom("handle", Vector(2, 2, 0));
+    //state->addAtom("handle", Vector(4, 2.7, 0));
+    //state->atoms[0].vel = Vector(2, 0, 0);
 
     //SHARED(WriteConfig) write = SHARED(WriteConfig) (new WriteConfig(state, "test", "handley", "xml", 5));
     //state->activateWriteConfig(write);
@@ -729,6 +751,5 @@ int main(int argc, char **argv) {
     //state->integrator.test();
 
     //MPI_Finalize();
-
 }
 

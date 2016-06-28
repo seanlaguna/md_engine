@@ -52,6 +52,26 @@ find_package (Boost COMPONENTS python REQUIRED)
 # Find Pugi XML
 find_package (PugiXML REQUIRED)
 
+# Finding CUDA-aware MPI
+find_package (MPI REQUIRED)
+if (MPI_CXX_FOUND)
+    include_directories(${MPI_CXX_INCLUDE_PATH})
+    find_program (OMPI_INFO NAMES ompi_info)
+    if (OMPI_INFO)
+        execute_process (COMMAND ${OMPI_INFO} --parseable --all
+                         OUTPUT_VARIABLE _ompi_info_out
+        )
+        if (_ompi_info_out MATCHES "mpi_built_with_cuda_support:value:true")
+            message (STATUS "Found CUDA-aware MPI")
+            set (MPI_CUDA true)
+        else ()
+            message (STATUS "Found MPI, but no CUDA-aware MPI")
+        endif ()
+    else (OMPI_INFO)
+        message (STATUS "Could not run ompi_info")
+    endif (OMPI_INFO)
+endif (MPI_CXX_FOUND)
+
 message (STATUS "Building MD_engine Version ${VERSION_MAJOR}.${VERSION_MINOR}")
 
 

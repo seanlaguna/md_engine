@@ -22,7 +22,18 @@ target_link_libraries (${MD_ENGINE_LIB_NAME} ${PYTHON_LIBRARIES}
                                              ${Boost_LIBRARIES}
                                              ${PugiXML_LIBRARIES}
                                              ${CUDA_LIBRARIES}
-                                             ${CUDA_CUFFT_LIBRARIES})
+                                             ${CUDA_CUFFT_LIBRARIES}
+                                             ${MPI_CXX_LIBRARIES})
+
+if(MPI_COMPILE_FLAGS)
+    set_target_properties (${MD_ENGINE_LIB_NAME} PROPERTIES
+        COMPILE_FLAGS "${MPI_CXX_COMPILE_FLAGS}")
+endif()
+
+if(MPI_LINK_FLAGS)
+    set_target_properties (${MD_ENGINE_LIB_NAME} PROPERTIES
+        LINK_FLAGS "${MPI_CXX_LINK_FLAGS}")
+endif()
 
 # TODO: Why does install(TARGETS ...) not work?
 #install(TARGETS ${MD_ENGINE_LIB_NAME} LIBRARY DESTINATION lib)

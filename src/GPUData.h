@@ -4,15 +4,32 @@
 
 #include <map>
 
+#include "GPUArrayDeviceGlobal.h"
 #include "GPUArrayGlobal.h"
 #include "GPUArrayPair.h"
-#include "GPUArrayDeviceGlobal.h"
 #include "GPUArrayTex.h"
+#include "PartitionData.h"
 #include "Virial.h"
 
-class GPUData {
-
+class GPUData
+{
 public:
+    GPUData()
+      : idToIdxs(cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindSigned))
+    {   }
+
+    unsigned int activeIdx() {
+        return xs.activeIdx;
+    }
+    unsigned int switchIdx() {
+        /*! \todo Find a better way to keep track of all data objects */
+        xs.switchIdx();
+        vs.switchIdx();
+        fs.switchIdx();
+        ids.switchIdx();
+        return qs.switchIdx();
+    }
+
     /* types (ints) are bit cast into the w value of xs.  Cast as int pls */
     GPUArrayPair<float4> xs;
     /* mass is stored in w value of vs.  ALWAYS do arithmetic as float3s, or
@@ -31,13 +48,19 @@ public:
     GPUArrayGlobal<uint> idsBuffer;
 
     /* for transfer between GPUs */
-    std::map<int, GPUArrayGlobal<float4>> neighborValBuffers;
-    std::map<int, GPUArrayGlobal<uint>> neighborIdsBuffers;
-    std::map<int, GPUArrayGlobal<int>> neighborIdxBuffers;
+    PartitionData partition;
 
-    std::map<int, GPUArrayGlobal<float4>> movedValBuffers;
-    std::map<int, GPUArrayGlobal<uint>> movedIdsBuffers;
-    std::map<int, GPUArrayGlobal<int>> movedIdxBuffers;
+    GPUArrayPair<float4> xsMoved;
+    GPUArrayPair<float4> vsMoved;
+    GPUArrayPair<float4> fsMoved;
+    GPUArrayPair<uint> idsMoved;
+    GPUArrayPair<float> qsMoved;
+
+    GPUArrayPair<float4> xsGhost;
+    GPUArrayPair<float4> vsGhost;
+    GPUArrayPair<float4> fsGhost;
+    GPUArrayPair<uint> idsGhost;
+    GPUArrayPair<float> qsGhost;
 
     /* for data collection.  If we re-use per-particle arrays, we can't do
      * async kernels to do per-group sums.  Would use less memory though */
@@ -46,22 +69,6 @@ public:
     std::vector<int> idToIdxsOnCopy;
 
     // OMG REMEMBER TO ADD EACH NEW ARRAY TO THE ACTIVE DATA LIST IN INTEGRATOR OR PAIN AWAITS
-
-    GPUData()
-      : idToIdxs(cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindSigned))
-    {   }
-
-    unsigned int activeIdx() {
-        return xs.activeIdx;
-    }
-    unsigned int switchIdx() {
-        /*! \todo Find a better way to keep track of all data objects */
-        xs.switchIdx();
-        vs.switchIdx();
-        fs.switchIdx();
-        ids.switchIdx();
-        return qs.switchIdx();
-    }
 
 };
 

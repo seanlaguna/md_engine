@@ -11,7 +11,20 @@
 
 typedef double num;
 
-#define GPUMEMBER __host__ __device__
+typedef enum OOBDir_enum: uint8_t {
+    LDI = 0,  MDI = 1,  RDI = 2,
+    LMI = 4,  MMI = 5,  RMI = 6,
+    LUI = 8,  MUI = 9,  RUI = 10,
+
+    LDM = 16, MDM = 17, RDM = 18,
+    LMM = 20, MMM = 21, RMM = 22,
+    LUM = 24, MUM = 25, RUM = 26,
+
+    LDO = 32, MDO = 33, RDO = 34,
+    LMO = 36, MMO = 37, RMO = 38,
+    LUO = 40, MUO = 41, RUO = 42
+} OOBDir;
+
 #define SHARED(X) boost::shared_ptr<X>
 
 template <typename T>
@@ -53,6 +66,6 @@ using b_shared_ptr = boost::shared_ptr<T>;
 #define PERBLOCK 256
 #define NBLOCK(x) ((int) (ceil(x / (float) PERBLOCK)))
 
-#define LINEARIDX(idx, ns) (ns.z*ns.y*idx.x + ns.z*idx.y + idx.z)
+//#define LINEARIDX(idx, ns) (ns.z*ns.y*idx.x + ns.z*idx.y + idx.z)
 
 #endif

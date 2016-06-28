@@ -5,8 +5,9 @@
 #include <map>
 #include <set>
 
-#include "GPUArrayGlobal.h"
 #include "GPUArrayDeviceGlobal.h"
+#include "GPUArrayGlobal.h"
+#include "GPUArrayPair.h"
 
 class State;
 
@@ -118,6 +119,12 @@ public:
      */
     void handleExclusions();
 
+    void handleTransferSizes(GPUArrayPair<uint> &szMoved,
+                             uint &szMaxSend, uint &szTotalSend,
+                             uint &szMaxRecv, uint &SzTotalRecv);
+
+    void handleTransferValues(GPUArrayPair<uint> &szMoved, uint szMaxMoved,
+                              uint szTotalSend, uint szTotalRecv, uint szTotalMax);
     /*! \brief Remap atoms around periodic boundary conditions
      *
      * \param neighCut Cutoff distance for neighbor interactions.

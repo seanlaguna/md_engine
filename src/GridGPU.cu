@@ -1,15 +1,17 @@
 #include "GridGPU.h"
 
-#include "State.h"
-#include "helpers.h"
 #include "Bond.h"
 #include "BoundsGPU.h"
-#include "list_macro.h"
-#include "Mod.h"
+#include "CudaMPI.h"
 #include "Fix.h"
+#include "helpers.h"
+#include "list_macro.h"
+#include "PartitionData.h"
+#include "Mod.h"
+#include "State.h"
+
 #include "cutils_func.h"
 #include "cutils_math.h"
-
 
 /* GridGPU members */
 
@@ -46,9 +48,9 @@ GridGPU::GridGPU() {
 }
 
 
-
 GridGPU::GridGPU(State *state_, float dx_, float dy_, float dz_, float neighCutoffMax_)
-  : state(state_) {
+    : state(state_)
+{
     neighCutoffMax = neighCutoffMax_;
 
     streamCreated = false;
@@ -82,14 +84,21 @@ GridGPU::~GridGPU() {
     }
 }
 
-void GridGPU::copyPositionsAsync() {
-
-    state->gpd.xs.d_data[state->gpd.activeIdx()].copyToDeviceArray((void *) xsLastBuild.data());//, rebuildCheckStream);
-
+void GridGPU::copyPositionsAsync()
+{
+    state->gpd.xs.d_data[state->gpd.activeIdx()].copyToDeviceArray(
+                        (void *) xsLastBuild.data());//, rebuildCheckStream);
 }
 
 
 /* grid kernels */
+
+// overkill, but this is telling the function to be inlined in all cases
+inline __host__ __device__
+int linearidx(int3 idx, int3 ns)
+{
+    return (ns.z*ns.y)*idx.x + (ns.z)*idx.y + idx.z;
+}
 
 __global__ void periodicWrap(float4 *xs, int nAtoms, BoundsGPU bounds) {
 
@@ -122,7 +131,7 @@ __global__ void countNumInGridCells(float4 *xs, int nAtoms,
     if (idx < nAtoms) {
         //printf("idx %d\n", idx);
         int3 sqrIdx = make_int3((make_float3(xs[idx]) - os) / ds);
-        int sqrLinIdx = LINEARIDX(sqrIdx, ns);
+        int sqrLinIdx = linearidx(sqrIdx, ns);
         //printf("lin is %d\n", sqrLinIdx);
         uint16_t myPlaceInGrid = atomicAdd(counts + sqrLinIdx, 1); //atomicAdd returns old value
         //printf("grid is %d\n", myPlaceInGrid);
@@ -132,24 +141,6 @@ __global__ void countNumInGridCells(float4 *xs, int nAtoms,
     }
 
 }
-
-
-/*
-__global__ void printNeighbors(int *neighborlistBounds, cudaTextureObject_t neighbors,
-                               int nAtoms) {
-    int idx = GETIDX();
-    if (idx < nAtoms) {
-        int begin = neighborlistBounds[idx];
-        int end = neighborlistBounds[idx+1];
-        for (int i=begin; i<end; i++) {
-            int xIdx = XIDX(i);
-            int yIdx = YIDX(i);
-            int x = tex2D<int>(neighbors, xIdx, yIdx);
-            printf("idx %d has neighbor of idx %d\n", idx, x);
-        }
-    }
-}
-*/
 
 
 template <typename T>
@@ -170,6 +161,7 @@ template <typename T>
 __device__ void copyToOtherList(T *from, T *to, int idx_init, int idx_final) {
     to[idx_final] = from[idx_init];
 }
+
 /*
   sortPerAtomArrays<<<NBLOCK(nAtoms), PERBLOCK>>>(
                     state->gpd.xs(activeIdx), state->gpd.xs(!activeIdx),
@@ -200,7 +192,7 @@ __global__ void sortPerAtomArrays(
         float3 pos = make_float3(posWhole);
         uint id = idsFrom[idx];
         int3 sqrIdx = make_int3((pos - os) / ds);
-        int sqrLinIdx = LINEARIDX(sqrIdx, ns);
+        int sqrLinIdx = linearidx(sqrIdx, ns);
         int sortedIdx = gridCellArrayIdxs[sqrLinIdx] + idxInGridCell[idx];
         //printf("I MOVE FROM %d TO %d, id is %d , MY POS IS %f %f %f\n", idx, sortedIdx, id, pos.x, pos.y, pos.z);
 
@@ -217,7 +209,6 @@ __global__ void sortPerAtomArrays(
         int yIdxId = YIDX(id, sizeof(int));
 
         surf2Dwrite(sortedIdx, idToIdx, xAddrId, yIdxId);
-
     }
     //annnnd copied!
 }
@@ -226,8 +217,8 @@ __global__ void sortPerAtomArrays(
 /*! modifies myCount to be the number of neighbors in this cell */
 __device__ void checkCell(float3 pos, uint myId, float4 *xs, uint *ids,
                           uint32_t *gridCellArrayIdxs, int squareIdx,
-                          float3 loop, float neighCutSqr, int &myCount) {
-
+                          float3 loop, float neighCutSqr, int &myCount)
+{
     uint32_t idxMin = gridCellArrayIdxs[squareIdx];
     uint32_t idxMax = gridCellArrayIdxs[squareIdx+1];
     for (int i=idxMin; i<idxMax; i++) {
@@ -242,8 +233,8 @@ __device__ void checkCell(float3 pos, uint myId, float4 *xs, uint *ids,
 __global__ void countNumNeighbors(float4 *xs, int nAtoms, uint *ids,
                                   uint16_t *neighborCounts, uint32_t *gridCellArrayIdxs,
                                   float3 os, float3 ds, int3 ns,
-                                  float3 periodic, float3 trace, float neighCutSqr) {
-
+                                  float3 periodic, float3 trace, float neighCutSqr)
+{
     int idx = GETIDX();
     if (idx < nAtoms) {
         float4 posWhole = xs[idx];
@@ -270,7 +261,7 @@ __global__ void countNumNeighbors(float4 *xs, int nAtoms, uint *ids,
                             zIdxLoop = zIdx + ns.z * offset.z;
                             if (periodic.z || (!periodic.z && zIdxLoop == zIdx)) {
                                 int3 sqrIdxOther = make_int3(xIdxLoop, yIdxLoop, zIdxLoop);
-                                int sqrIdxOtherLin = LINEARIDX(sqrIdxOther, ns);
+                                int sqrIdxOtherLin = linearidx(sqrIdxOther, ns);
                                 float3 loop = (-offset) * trace;
                                 // updates myCount for this cell
                                 checkCell(pos, myId, xs, ids,
@@ -292,8 +283,8 @@ __global__ void countNumNeighbors(float4 *xs, int nAtoms, uint *ids,
 
 
 __device__ uint addExclusion(uint otherId, uint *exclusionIds_shr,
-                             int idxLo, int idxHi) {
-
+                             int idxLo, int idxHi)
+{
     uint exclMask = EXCL_MASK;
     for (int i=idxLo; i<idxHi; i++) {
         if ((exclusionIds_shr[i] & exclMask) == otherId) {
@@ -308,8 +299,8 @@ __device__ int assignFromCell(float3 pos, int idx, uint myId, float4 *xs, uint *
                               float3 offset, float3 trace, float neighCutSqr,
                               int currentNeighborIdx, uint *neighborlist,
                               uint *exclusionIds_shr, int exclIdxLo_shr, int exclIdxHi_shr,
-                              int warpSize) {
-
+                              int warpSize)
+{
     uint idxMin = gridCellArrayIdxs[squareIdx];
     uint idxMax = gridCellArrayIdxs[squareIdx+1];
     for (uint i=idxMin; i<idxMax; i++) {
@@ -332,12 +323,14 @@ __device__ int assignFromCell(float3 pos, int idx, uint myId, float4 *xs, uint *
     return currentNeighborIdx;
 }
 
-__global__ void assignNeighbors(float4 *xs, int nAtoms, uint *ids,
-                                uint32_t *gridCellArrayIdxs, uint32_t *cumulSumMaxPerBlock,
-                                float3 os, float3 ds, int3 ns,
-                                float3 periodic, float3 trace, float neighCutSqr,
-                                uint *neighborlist, int warpSize,
-                                int *exclusionIndexes, uint *exclusionIds, int maxExclusionsPerAtom) {
+__global__ void assignNeighbors(
+                        float4 *xs, int nAtoms, uint *ids,
+                        uint32_t *gridCellArrayIdxs, uint32_t *cumulSumMaxPerBlock,
+                        float3 os, float3 ds, int3 ns,
+                        float3 periodic, float3 trace, float neighCutSqr,
+                        uint *neighborlist, int warpSize,
+                        int *exclusionIndexes, uint *exclusionIds, int maxExclusionsPerAtom)
+{
 
     // extern __shared__ int exclusions_shr[];
     extern __shared__ uint exclusionIds_shr[];
@@ -394,7 +387,11 @@ __global__ void assignNeighbors(float4 *xs, int nAtoms, uint *ids,
         int xIdx, yIdx, zIdx;
         int xIdxLoop, yIdxLoop, zIdxLoop;
         float3 offset = make_float3(0, 0, 0);
-        currentNeighborIdx = assignFromCell(pos, idx, myId, xs, ids, gridCellArrayIdxs, LINEARIDX(sqrIdx, ns), offset, trace, neighCutSqr, currentNeighborIdx, neighborlist, exclusionIds_shr, exclIdxLo_shr, exclIdxHi_shr, warpSize);
+        currentNeighborIdx = assignFromCell(pos, idx, myId, xs, ids, gridCellArrayIdxs,
+                                            linearidx(sqrIdx, ns), offset, trace, neighCutSqr,
+                                            currentNeighborIdx, neighborlist,
+                                            exclusionIds_shr, exclIdxLo_shr, exclIdxHi_shr,
+                                            warpSize);
         for (xIdx=sqrIdx.x-1; xIdx<=sqrIdx.x+1; xIdx++) {
             offset.x = -floorf((float) xIdx / ns.x);
             xIdxLoop = xIdx + ns.x * offset.x;
@@ -412,7 +409,7 @@ __global__ void assignNeighbors(float4 *xs, int nAtoms, uint *ids,
                                 if (! (xIdx == sqrIdx.x and yIdx == sqrIdx.y and zIdx == sqrIdx.z) ) {
 
                                     int3 sqrIdxOther = make_int3(xIdxLoop, yIdxLoop, zIdxLoop);
-                                    int sqrIdxOtherLin = LINEARIDX(sqrIdxOther, ns);
+                                    int sqrIdxOtherLin = linearidx(sqrIdxOther, ns);
                                     //__device__ int assignFromCell(
                                     //      float3 pos, int idx, uint myId, float4 *xs, uint *ids, int *gridCellArrayIdxs,
                                     //      int squareIdx, float3 offset, float3 trace, float neighCutSqr,
@@ -440,7 +437,8 @@ __global__ void assignNeighbors(float4 *xs, int nAtoms, uint *ids,
 }
 
 
-void setPerBlockCounts(std::vector<uint16_t> &neighborCounts, std::vector<uint32_t> &numNeighborsInBlocks) {
+void setPerBlockCounts(std::vector<uint16_t> &neighborCounts, std::vector<uint32_t> &numNeighborsInBlocks)
+{
     numNeighborsInBlocks[0] = 0;
     for (int i=0; i<numNeighborsInBlocks.size()-1; i++) {
         uint16_t maxNeigh = 0;
@@ -458,8 +456,8 @@ void setPerBlockCounts(std::vector<uint16_t> &neighborCounts, std::vector<uint32
 
 
 __global__ void setBuildFlag(float4 *xsA, float4 *xsB, int nAtoms, BoundsGPU boundsGPU,
-                             float paddingSqr, int *buildFlag, int numChecksSinceBuild, int warpSize) {
-
+                             float paddingSqr, int *buildFlag, int numChecksSinceBuild, int warpSize)
+{
     int idx = GETIDX();
     extern __shared__ short flags_shr[];
     if (idx < nAtoms) {
@@ -486,8 +484,8 @@ __global__ void setBuildFlag(float4 *xsA, float4 *xsB, int nAtoms, BoundsGPU bou
 
 
 __global__ void computeMaxNumNeighPerBlock(int nAtoms, uint16_t *neighborCounts,
-                                           uint16_t *maxNeighInBlock, int warpSize) {
-
+                                           uint16_t *maxNeighInBlock, int warpSize)
+{
     int idx = GETIDX();
     extern __shared__ uint16_t counts_shr[];
     if (idx < nAtoms) {
@@ -501,11 +499,11 @@ __global__ void computeMaxNumNeighPerBlock(int nAtoms, uint16_t *neighborCounts,
     if (threadIdx.x == 0) {
         maxNeighInBlock[blockIdx.x] = counts_shr[0];
     }
-
 }
 
 
-__global__ void setCumulativeSumPerBlock(int numBlocks, uint32_t *perBlockArray, uint16_t *maxNeighborsInBlock) {
+__global__ void setCumulativeSumPerBlock(int numBlocks, uint32_t *perBlockArray, uint16_t *maxNeighborsInBlock)
+{
     int idx = GETIDX();
     // doing this in simplest way possible, can optimize later if problem
     if (idx < numBlocks+1) {
@@ -518,8 +516,229 @@ __global__ void setCumulativeSumPerBlock(int numBlocks, uint32_t *perBlockArray,
 }
 
 
-void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild) {
+__global__ void countTransferAtoms(float4 *xs, PartitionData partition,
+                                   int nAtoms, uint *szMoved)
+{
+    int idx = GETIDX();
+    if (idx < nAtoms) {
+        OOBDir dir = partition.boundsLocalGPU.oobInDir(make_float3(xs[idx]));
 
+        auto adjIdx = partition.getAdjIdx(dir);
+        if (adjIdx != partition.adjSize) {
+            // atomicAdd returns old value
+            atomicAdd(szMoved + adjIdx, 1);
+        }
+    }
+}
+
+__global__ void copySendAtoms(float4 *xs, float4 *xsMoved,
+                              float4 *vs, float4 *vsMoved,
+                              float4 *fs, float4 *fsMoved,
+                              uint *ids, uint *idsMoved,
+                              float *qs, float *qsMoved,
+                              uint *idxsMoved, int nAtoms,
+                              uint *szMoved, int szMaxMoved,
+                              PartitionData partition)
+{
+    int idx = GETIDX();
+    if (idx < nAtoms) {
+        OOBDir dir = partition.boundsLocalGPU.oobInDir(make_float3(xs[idx]));
+        auto adjIdx = partition.getAdjIdx(dir);
+        if (adjIdx != partition.adjSize) {
+            int idxM = adjIdx * szMaxMoved + atomicAdd(szMoved + adjIdx, 1);
+            copyToOtherList<float4>(xs, xsMoved, idx, idxM);
+            copyToOtherList<float4>(vs, vsMoved, idx, idxM);
+            copyToOtherList<float4>(fs, fsMoved, idx, idxM);
+            copyToOtherList<uint>(ids, idsMoved, idx, idxM);
+            copyToOtherList<float>(qs, qsMoved, idx, idxM);
+            idxsMoved[idxM] = idx;
+
+            // TODO: when sorting happens, this will be at the end
+            xs[idx].x = partition.boundsLocalGPU.rectComponents.x;
+            xs[idx].y = partition.boundsLocalGPU.rectComponents.y;
+            xs[idx].z = partition.boundsLocalGPU.rectComponents.z;
+        }
+    }
+}
+
+__global__ void copyRecvAtoms(float4 *xs, float4 *xsMoved,
+                              float4 *vs, float4 *vsMoved,
+                              float4 *fs, float4 *fsMoved,
+                              uint *ids, uint *idsMoved,
+                              float *qs, float *qsMoved,
+                              uint *idxsMoved, uint16_t szTotalRecv)
+{
+    int idx = GETIDX();
+    if (idx < szTotalRecv) {
+        copyToOtherList<float4>(xsMoved, xs, idx, idxsMoved[idx]);
+        copyToOtherList<float4>(vsMoved, vs, idx, idxsMoved[idx]);
+        copyToOtherList<float4>(fsMoved, fs, idx, idxsMoved[idx]);
+        copyToOtherList<uint>(idsMoved, ids, idx, idxsMoved[idx]);
+        copyToOtherList<float>(qsMoved, qs, idx, idxsMoved[idx]);
+    }
+}
+
+void GridGPU::handleTransferSizes(GPUArrayPair<uint> &szMoved,
+                                  uint &szMaxSend, uint &szTotalSend,
+                                  uint &szMaxRecv, uint &szTotalRecv)
+{
+    int nAtoms = state->atoms.size();
+    int activeIdx = state->gpd.activeIdx();
+    PartitionData &partition = state->gpd.partition;
+    int send = 0;
+    int recv = 1;
+
+    // get how many atoms move in each direction
+    szMoved.memsetByVal(0, send);
+    szMoved.memsetByVal(0, recv);
+    std::cout << "about to count transfers" << std::endl;
+    countTransferAtoms<<<NBLOCK(nAtoms), PERBLOCK>>>(
+                state->gpd.xs(activeIdx), partition,
+                nAtoms, szMoved(send));
+    szMoved.dataToHost(send);
+
+    std::cout << "about to sendrecv sizes: " << szMoved.h_data[0] << std::endl;
+    // Sendrecv sizes
+    for (int idx = 0; idx < partition.adjSize; ++idx) {
+        MPI_Sendrecv_gpu(szMoved(send) + idx, szMoved(recv) + idx,
+                         1, 1, MPI_UNSIGNED, partition.adjRanks.h_data[idx]);
+    }
+    cudaDeviceSynchronize();
+
+    //std::cout << "getting max and total (send)" << std::endl;
+    // get max moved in any direction
+    auto szMaxSendIt = std::max_element(szMoved.h_data.begin(),
+                                        szMoved.h_data.end());
+    if (szMaxSendIt != szMoved.h_data.end()) {
+        szMaxSend = *szMaxSendIt;
+    }
+    // get size of lists to send, recv, and max of both
+    szTotalSend = std::accumulate(szMoved.h_data.begin(),
+                                  szMoved.h_data.end(), 0);
+
+    //std::cout << "getting max and total (recv)" << std::endl;
+    szMoved.dataToHost(recv);
+    auto szMaxRecvIt = std::max_element(szMoved.h_data.begin(),
+                                        szMoved.h_data.end());
+    if (szMaxRecvIt != szMoved.h_data.end()) {
+        szMaxRecv = *szMaxRecvIt;
+    }
+    szTotalRecv = std::accumulate(szMoved.h_data.begin(),
+                                  szMoved.h_data.end(), 0);
+
+}
+
+
+void GridGPU::handleTransferValues(GPUArrayPair<uint> &szMoved, uint szMaxMoved,
+                                   uint szTotalSend, uint szTotalRecv, uint szTotalMax)
+{
+    int nAtoms = state->atoms.size();
+    int activeIdx = state->gpd.activeIdx();
+    PartitionData &partition = state->gpd.partition;
+    int send = 0;
+    int recv = 1;
+
+    // copy OOB atoms to moved arrays
+    auto idxsMoved = GPUArrayGlobal<uint>(szTotalMax+1);
+    szMoved.memsetByVal(0, send);
+    copySendAtoms<<<NBLOCK(nAtoms), PERBLOCK>>>(
+                state->gpd.xs(activeIdx), state->gpd.xsMoved(send),
+                state->gpd.vs(activeIdx), state->gpd.vsMoved(send),
+                state->gpd.fs(activeIdx), state->gpd.fsMoved(send),
+                state->gpd.ids(activeIdx), state->gpd.idsMoved(send),
+                state->gpd.qs(activeIdx), state->gpd.qsMoved(send),
+                idxsMoved.getDevData(), nAtoms, szMoved(send), szMaxMoved,
+                partition);
+    // if we recv more atoms than we send, then add them to the end
+    // *** notice the size of idxsMoved is szTotalMax ***
+    int end = nAtoms;
+    for (uint i = szTotalSend; i < szTotalRecv; ++i) {
+        idxsMoved.h_data[i] = end++;
+    }
+    idxsMoved.dataToDevice();
+
+    // update number of atoms as above, so idxsMoved makes sense
+    nAtoms += (szTotalRecv - szTotalSend);
+    // TODO: take care of this size change
+
+    std::cout << "reallocating if nAtoms got too big" << std::endl;
+    // reallocate atoms if necessary
+    // TODO: make helper of GpuArrayPair, this is awful
+    if(nAtoms > (int)state->gpd.xs.size()) {
+        auto xsTemp = GPUArrayPair<float4>(nAtoms);
+        xsTemp.activeIdx = activeIdx;
+        state->gpd.xs.copyToDeviceArray(xsTemp(activeIdx));
+        state->gpd.xs = std::move(xsTemp);
+        auto vsTemp = GPUArrayPair<float4>(nAtoms);
+        vsTemp.activeIdx = activeIdx;
+        state->gpd.vs.copyToDeviceArray(vsTemp(activeIdx));
+        state->gpd.vs = std::move(vsTemp);
+        auto fsTemp = GPUArrayPair<float4>(nAtoms);
+        fsTemp.activeIdx = activeIdx;
+        state->gpd.fs.copyToDeviceArray(fsTemp(activeIdx));
+        state->gpd.fs = std::move(fsTemp);
+        auto idsTemp = GPUArrayPair<uint>(nAtoms);
+        idsTemp.activeIdx = activeIdx;
+        state->gpd.ids.copyToDeviceArray(idsTemp(activeIdx));
+        state->gpd.ids = std::move(idsTemp);
+        auto qsTemp = GPUArrayPair<float>(nAtoms);
+        qsTemp.activeIdx = activeIdx;
+        state->gpd.qs.copyToDeviceArray(qsTemp(activeIdx));
+        state->gpd.qs = std::move(qsTemp);
+    }
+
+    std::cout << "about to sendrecv atoms" << std::endl;
+    // send and receive data
+    for (uint16_t idx = 0; idx < partition.adjSize; ++idx) {
+
+        uint transferIdx = partition.adjRanks.h_data[idx] * szMaxMoved;
+        int rankOther = partition.adjRanks.h_data[idx];
+
+        szMoved.dataToHost(send);
+        uint szSend = szMoved.h_data[idx];
+        szMoved.dataToHost(recv);
+        uint szRecv = szMoved.h_data[idx];
+        uint szSendf4 = szSend * sizeof(float4)/sizeof(float);
+        uint szRecvf4 = szRecv * sizeof(float4)/sizeof(float);
+
+        MPI_Sendrecv_gpu(state->gpd.xsMoved(send) + transferIdx,
+                         state->gpd.xsMoved(recv) + transferIdx,
+                         szSendf4, szRecvf4, MPI_FLOAT, rankOther);
+        cudaDeviceSynchronize();
+        MPI_Sendrecv_gpu(state->gpd.vsMoved(send) + transferIdx,
+                         state->gpd.vsMoved(recv) + transferIdx,
+                         szSendf4, szRecvf4, MPI_FLOAT, rankOther);
+        cudaDeviceSynchronize();
+        MPI_Sendrecv_gpu(state->gpd.fsMoved(send) + transferIdx,
+                         state->gpd.fsMoved(recv) + transferIdx,
+                         szSendf4, szRecvf4, MPI_FLOAT, rankOther);
+        cudaDeviceSynchronize();
+        MPI_Sendrecv_gpu(state->gpd.idsMoved(send) + transferIdx,
+                         state->gpd.idsMoved(recv) + transferIdx,
+                         szSend, szRecv, MPI_UNSIGNED, rankOther);
+        cudaDeviceSynchronize();
+        MPI_Sendrecv_gpu(state->gpd.qsMoved(send) + transferIdx,
+                         state->gpd.qsMoved(recv) + transferIdx,
+                         szSend, szRecv, MPI_FLOAT, rankOther);
+        cudaDeviceSynchronize();
+
+    }
+
+    std::cout << "copying recv atoms" << std::endl;
+    // copy received atoms to local gpu arrays;
+    // notice that, as above, szTotalMax == idxsMoved.size() >= szTotalRecv
+    copyRecvAtoms<<<NBLOCK(szTotalRecv), PERBLOCK>>>(
+                state->gpd.xs(activeIdx), state->gpd.xsMoved(recv),
+                state->gpd.vs(activeIdx), state->gpd.vsMoved(recv),
+                state->gpd.fs(activeIdx), state->gpd.fsMoved(recv),
+                state->gpd.ids(activeIdx), state->gpd.idsMoved(recv),
+                state->gpd.qs(activeIdx), state->gpd.qsMoved(recv),
+                idxsMoved.getDevData(), szTotalRecv);
+}
+
+
+void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild)
+{
     DeviceManager &devManager = state->devManager;
     int warpSize = devManager.prop.warpSize;
     // TODO: remove sorting option.  Must sort every time if using mpi, and
@@ -544,7 +763,14 @@ void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild) {
     cudaDeviceSynchronize();
 
     // std::cout << "I AM BUILDING" << std::endl;
-    if (buildFlag.h_data[0] or forceBuild) {
+    std::cout << "oobInDir tests of moving atom ("
+              << state->gpd.xs.h_data[0].x << ","
+              << state->gpd.xs.h_data[0].y << ","
+              << state->gpd.xs.h_data[0].z << "): "
+              << state->gpd.partition.boundsLocalGPU.oobInDir(
+                                make_float3(state->gpd.xs.h_data[0]))
+              << std::endl;
+    if (buildFlag.h_data[0] or true) {
 
         float3 ds_orig = ds;
         float3 os_orig = os;
@@ -562,7 +788,57 @@ void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild) {
             //            state->gpd.xs(activeIdx), nAtoms,
             //            bounds.sides[0], bounds.sides[1], bounds.lo);
         }
-        periodicWrap<<<NBLOCK(nAtoms), PERBLOCK>>>(state->gpd.xs(activeIdx), nAtoms, boundsUnskewed);
+        periodicWrap<<<NBLOCK(nAtoms), PERBLOCK>>>(
+                    state->gpd.xs(activeIdx), nAtoms, boundsUnskewed);
+
+        // MULTIGPU: shortcut for partition, which gets used to:
+        //   * identify OOB atoms
+        //   * tell us which dirs are adjacent to us
+        //   * map between dirs and arraymap offsets
+        //   * map between dirs and ranks
+        PartitionData &partition = state->gpd.partition;
+
+        // szMoved holds the number that moved for all adjacent procs
+        std::cout << "GAP with size: " << partition.adjSize + 1 << std::endl;
+        auto szMoved = GPUArrayPair<uint>(partition.adjSize + 1);
+        // max we send to any adj proc, total we send to all adj procs
+        uint szMaxSend, szTotalSend = 0;
+        uint szMaxRecv, szTotalRecv = 0;
+        // fills in the above values for us, makes MPI calls
+        handleTransferSizes(szMoved,
+                            szMaxSend, szTotalSend,
+                            szMaxRecv, szTotalRecv);
+
+        uint szMaxMoved = std::max(szMaxSend, szMaxRecv);
+        uint szTotalMax = std::max(szTotalSend, szTotalRecv);
+        std::cout << "szMaxMoved: "   << szMaxMoved
+                  << "; szTotalMax: " << szTotalMax << std::endl;
+
+        // reallocate moved if necessary; for now, send and recv will be same size
+        if (    szMaxMoved * partition.adjSize > state->gpd.xsMoved.size() ||
+                szMaxMoved * partition.adjSize < state->gpd.xsMoved.size() / 2) {
+            uint szNew = szMaxMoved * partition.adjSize * 1.5;
+            state->gpd.xsMoved = GPUArrayPair<float4>(szNew);
+            state->gpd.vsMoved = GPUArrayPair<float4>(szNew);
+            state->gpd.fsMoved = GPUArrayPair<float4>(szNew);
+            state->gpd.idsMoved = GPUArrayPair<uint>(szNew);
+            state->gpd.qsMoved = GPUArrayPair<float>(szNew);
+        }
+
+        // send/recv moved atoms, makes MPI calls
+        handleTransferValues(szMoved, szMaxMoved,
+                             szTotalSend, szTotalRecv, szTotalMax);
+
+        // TODO: ghosts
+        // 1. count ghosts atoms/cell, store in array
+        //    (len: cells/dim * cells/dim * cells/dim * cells/dim,
+        //          or 1, for point (1*1*1), line (n*1*1), plane (n*n*1)
+        // 2. sendrecv ghost counts per cell
+        // 3. resize in same manner as above
+        // 4. sendrecv ghosts into buffers, either cell-wise or w/ intermediate
+        //    copy
+        // 5. figure out where the atoms are accessed, and change interface so
+        //    that the neighbors can be found etc
 
         // increase number of grid cells if necessary
         int numGridCells = prod(ns);
@@ -821,7 +1097,7 @@ bool GridGPU::checkSorting(int gridIdx, int *gridIdxs,
             gpuIds.push_back(id);
 
             int3 sqr = make_int3((pos - os) / ds);
-            int linear = LINEARIDX(sqr, ns);
+            int linear = linearidx(sqr, ns);
             if (linear != i) {
                 correct = false;
             }
