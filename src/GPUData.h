@@ -30,6 +30,8 @@ public:
         return qs.switchIdx();
     }
 
+    int nAtoms;
+
     /* types (ints) are bit cast into the w value of xs.  Cast as int pls */
     GPUArrayPair<float4> xs;
     /* mass is stored in w value of vs.  ALWAYS do arithmetic as float3s, or

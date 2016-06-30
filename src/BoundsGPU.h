@@ -92,7 +92,7 @@ public:
                diff.x >= 0 and diff.y >= 0 and diff.z >= 0;
     }
 
-    __host__ __device__ OOBDir oobInDir(float3 v)
+    __host__ __device__ OOBDir oobInDir(float3 v) const
     {
         float3 diff = v - lo;
         bool oobL = diff.x < 0;

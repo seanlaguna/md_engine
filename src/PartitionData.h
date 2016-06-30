@@ -26,7 +26,7 @@ public:
     PartitionData()
             : nDims(3)
     { }
-    PartitionData(bool is2d, bool periodic_in[3], BoundsGPU boundsLocalGPU_in)
+    PartitionData(bool is2d, bool periodic_in[3], BoundsGPU &boundsLocalGPU_in)
             : boundsLocalGPU(boundsLocalGPU_in),
               nDims(is2d? 2 : 3)
     {
@@ -43,8 +43,9 @@ public:
     }
 
     // returns index in list of adjacent directions
-    // returns size of adjacint directions if not adjacent
-    __host__ __device__ int getAdjIdx(OOBDir dir) {
+    // returns size of adjacent directions if not adjacent
+    __host__ __device__ int getAdjIdx(OOBDir dir) const
+    {
         int i = 0;
         for (; i < adjSize; ++i) {
             if (dir == adjDirsRaw[i]) { break; }
@@ -53,8 +54,9 @@ public:
     }
 
     // returns MPI rank for a given dir
-    // returns size of adjacint directions if not adjacent
-    __host__ __device__ int dirToRank(OOBDir dir) {
+    // returns size of adjacent directions if not adjacent
+    __host__ __device__ int dirToRank(OOBDir dir) const
+    {
         int i = getAdjIdx(dir);
         if (i < adjSize) {
             return adjRanksRaw[i];
@@ -73,7 +75,8 @@ public:
     BoundsGPU boundsLocalGPU; //!< Bounds on the GPU
 
 private:
-    __host__ __device__ OOBDir offsToDir(int offs[3]) {
+    __host__ __device__ OOBDir offsToDir(int offs[3]) const
+    {
         uint bases[3] = { 0, 2, 4 };
         uint8_t dir = 0;
         for (int i = 0; i < nDims; ++i) {
@@ -123,8 +126,10 @@ private:
                       if (rank == rankAdj) { continue; }
                       adjRanksCpu.push_back(rankAdj);
                       int offs[3] = { offx, offy, offz };
-                      std::cout << "adding rank/dir pair for offset: " << offs[0] << "," << offs[1] << "," << offs[2] << ": "
-                                << rankAdj << " & " << static_cast<int>(offsToDir(offs)) << std::endl;
+                      std::cout << "adding rank/dir pair for offset: "
+                                << offs[0] << "," << offs[1] << "," << offs[2] << ": "
+                                << rankAdj << " & " << static_cast<int>(offsToDir(offs))
+                                << std::endl;
                       adjDirsCpu.push_back(offsToDir(offs));
                   }  // end offz
              }  // end offy
@@ -140,7 +145,9 @@ private:
         adjSize = adjRanks.size();
         std::cout << "rank " << rank << " has ";
         for (int i = 0; i < adjSize; ++i) {
-            std::cout << adjRanksCpu[i] << " rank, " << static_cast<int>(adjDirsCpu[i]) << " dir " << std::endl;
+            std::cout << adjRanksCpu[i] << " rank, "
+                      << static_cast<int>(adjDirsCpu[i]) << " dir "
+                      << std::endl;
         }
         std::cout << std::endl;
     }

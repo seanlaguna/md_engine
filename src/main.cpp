@@ -562,15 +562,15 @@ void testOrbit()
     state->atomParams.addSpecies("handle", 2);
 
     // add atoms like this
-    state->addAtom("handle", Vector(8, 1, 0), 0);
-    state->addAtom("handle", Vector(42, 1, 0), 0);
+    state->addAtom("handle", Vector(20, 1, 0), 0);
+    state->addAtom("handle", Vector(30, 1, 0), 0);
     // can set velocity directly
     state->atoms[0].vel = Vector(1, 0, 0);
-    state->atoms[1].vel = Vector(-1, 0, 0);
+    state->atoms[1].vel = Vector(0, 0, 0);
     // how often grid checks to build
     state->periodicInterval = 9;
     // timestep size
-    state->dt = 0.005;
+    state->dt = 0.1;
 
     IntegratorVerlet verlet(state.get());
     verlet.run(200);

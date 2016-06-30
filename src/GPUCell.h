@@ -139,10 +139,14 @@ class GhostIterator
 {
 public:
     // calculate lo and hi based on base and dir
-    GhostIterator(float3 base, OOBDir dir, const int3 &ns, const int3 &ds,
-                  const uint16_t *cellOffs)
-        : cells(
+    GhostIterator(float3 base, OOBDir dir, const GridGPU &grid)
+        : cells(linearidx(make_int3((base-os)/ds), ns))
+
     {
+        PartitionData &partition = state->gpd.partition;
+
+        int3 sqrIdx = make_int3((base-os) / ds);
+        int3 lo =  
     }
     // full set of passthroughs to CellIterator
 

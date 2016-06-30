@@ -19,15 +19,15 @@ void GridGPU::initArrays() {
     perCellArray =
         GPUArrayGlobal<uint32_t>(prod(ns) + 1);
     perAtomArray =
-        GPUArrayGlobal<uint16_t>(state->atoms.size()+1);
+        GPUArrayGlobal<uint16_t>(state->gpd.nAtoms+1);
     // also cumulative sum, tracking cumul. sum of max per block
     perBlockArray =
-        GPUArrayGlobal<uint32_t>(NBLOCK(state->atoms.size()) + 1);
+        GPUArrayGlobal<uint32_t>(NBLOCK(state->gpd.nAtoms) + 1);
     // not +1 on this one, isn't cumul sum
     perBlockArray_maxNeighborsInBlock =
-        GPUArrayDeviceGlobal<uint16_t>(NBLOCK(state->atoms.size()));
+        GPUArrayDeviceGlobal<uint16_t>(NBLOCK(state->gpd.nAtoms));
     xsLastBuild =
-        GPUArrayDeviceGlobal<float4>(state->atoms.size());
+        GPUArrayDeviceGlobal<float4>(state->gpd.nAtoms);
 
     // in prepare for run, you make GPU grid _after_ copying xs to device
     buildFlag = GPUArrayGlobal<int>(1);
@@ -87,7 +87,7 @@ GridGPU::~GridGPU() {
 void GridGPU::copyPositionsAsync()
 {
     state->gpd.xs.d_data[state->gpd.activeIdx()].copyToDeviceArray(
-                        (void *) xsLastBuild.data());//, rebuildCheckStream);
+                        (void *)xsLastBuild.data());//, rebuildCheckStream);
 }
 
 
@@ -125,8 +125,8 @@ __global__ void periodicWrap(float4 *xs, int nAtoms, BoundsGPU bounds) {
 
 __global__ void countNumInGridCells(float4 *xs, int nAtoms,
                                     uint32_t *counts, uint16_t *atomIdxs,
-                                    float3 os, float3 ds, int3 ns) {
-
+                                    float3 os, float3 ds, int3 ns)
+{
     int idx = GETIDX();
     if (idx < nAtoms) {
         //printf("idx %d\n", idx);
@@ -145,7 +145,8 @@ __global__ void countNumInGridCells(float4 *xs, int nAtoms,
 
 template <typename T>
 __device__ void copyToOtherSurf(cudaSurfaceObject_t from, cudaSurfaceObject_t to,
-                                int idx_init, int idx_final) {
+                                int idx_init, int idx_final)
+{
     int xIdx, yIdx, xAddr;
     xIdx = XIDX(idx_init, sizeof(T));
     yIdx = YIDX(idx_init, sizeof(T));
@@ -158,7 +159,8 @@ __device__ void copyToOtherSurf(cudaSurfaceObject_t from, cudaSurfaceObject_t to
 }
 
 template <typename T>
-__device__ void copyToOtherList(T *from, T *to, int idx_init, int idx_final) {
+__device__ void copyToOtherList(T *from, T *to, int idx_init, int idx_final)
+{
     to[idx_final] = from[idx_init];
 }
 
@@ -184,8 +186,8 @@ __global__ void sortPerAtomArrays(
                     cudaSurfaceObject_t idToIdx,
                     bool requiresCharges,
                     uint32_t *gridCellArrayIdxs, uint16_t *idxInGridCell, int nAtoms,
-                    float3 os, float3 ds, int3 ns) {
-
+                    float3 os, float3 ds, int3 ns)
+{
     int idx = GETIDX();
     if (idx < nAtoms) {
         float4 posWhole = xsFrom[idx];
@@ -516,13 +518,12 @@ __global__ void setCumulativeSumPerBlock(int numBlocks, uint32_t *perBlockArray,
 }
 
 
-__global__ void countTransferAtoms(float4 *xs, PartitionData partition,
+__global__ void countTransferAtoms(float4 *xs, const PartitionData partition,
                                    int nAtoms, uint *szMoved)
 {
     int idx = GETIDX();
     if (idx < nAtoms) {
         OOBDir dir = partition.boundsLocalGPU.oobInDir(make_float3(xs[idx]));
-
         auto adjIdx = partition.getAdjIdx(dir);
         if (adjIdx != partition.adjSize) {
             // atomicAdd returns old value
@@ -538,19 +539,23 @@ __global__ void copySendAtoms(float4 *xs, float4 *xsMoved,
                               float *qs, float *qsMoved,
                               uint *idxsMoved, int nAtoms,
                               uint *szMoved, int szMaxMoved,
-                              PartitionData partition)
+                              const PartitionData partition)
 {
     int idx = GETIDX();
     if (idx < nAtoms) {
         OOBDir dir = partition.boundsLocalGPU.oobInDir(make_float3(xs[idx]));
         auto adjIdx = partition.getAdjIdx(dir);
         if (adjIdx != partition.adjSize) {
-            int idxM = adjIdx * szMaxMoved + atomicAdd(szMoved + adjIdx, 1);
+            auto rankOther = partition.adjRanksRaw[adjIdx];
+            int idxM = rankOther * szMaxMoved + atomicAdd(szMoved + adjIdx, 1);
+            printf("atom %d oob in dir %u getting sent to %u with idxM %d\n",
+                   idx, (uint)dir, adjIdx, idxM);
+            //xsMoved[idxM] = xs[idx];
             copyToOtherList<float4>(xs, xsMoved, idx, idxM);
             copyToOtherList<float4>(vs, vsMoved, idx, idxM);
             copyToOtherList<float4>(fs, fsMoved, idx, idxM);
             copyToOtherList<uint>(ids, idsMoved, idx, idxM);
-            copyToOtherList<float>(qs, qsMoved, idx, idxM);
+            //copyToOtherList<float>(qs, qsMoved, idx, idxM);
             idxsMoved[idxM] = idx;
 
             // TODO: when sorting happens, this will be at the end
@@ -570,11 +575,13 @@ __global__ void copyRecvAtoms(float4 *xs, float4 *xsMoved,
 {
     int idx = GETIDX();
     if (idx < szTotalRecv) {
+        printf("ith (with i = %u) copied from recv buf to idxM %d\n",
+               idx, idxsMoved[idx]);
         copyToOtherList<float4>(xsMoved, xs, idx, idxsMoved[idx]);
         copyToOtherList<float4>(vsMoved, vs, idx, idxsMoved[idx]);
         copyToOtherList<float4>(fsMoved, fs, idx, idxsMoved[idx]);
         copyToOtherList<uint>(idsMoved, ids, idx, idxsMoved[idx]);
-        copyToOtherList<float>(qsMoved, qs, idx, idxsMoved[idx]);
+        //copyToOtherList<float>(qsMoved, qs, idx, idxsMoved[idx]);
     }
 }
 
@@ -582,7 +589,7 @@ void GridGPU::handleTransferSizes(GPUArrayPair<uint> &szMoved,
                                   uint &szMaxSend, uint &szTotalSend,
                                   uint &szMaxRecv, uint &szTotalRecv)
 {
-    int nAtoms = state->atoms.size();
+    int &nAtoms = state->gpd.nAtoms;
     int activeIdx = state->gpd.activeIdx();
     PartitionData &partition = state->gpd.partition;
     int send = 0;
@@ -632,7 +639,7 @@ void GridGPU::handleTransferSizes(GPUArrayPair<uint> &szMoved,
 void GridGPU::handleTransferValues(GPUArrayPair<uint> &szMoved, uint szMaxMoved,
                                    uint szTotalSend, uint szTotalRecv, uint szTotalMax)
 {
-    int nAtoms = state->atoms.size();
+    int &nAtoms = state->gpd.nAtoms;
     int activeIdx = state->gpd.activeIdx();
     PartitionData &partition = state->gpd.partition;
     int send = 0;
@@ -641,6 +648,7 @@ void GridGPU::handleTransferValues(GPUArrayPair<uint> &szMoved, uint szMaxMoved,
     // copy OOB atoms to moved arrays
     auto idxsMoved = GPUArrayGlobal<uint>(szTotalMax+1);
     szMoved.memsetByVal(0, send);
+
     copySendAtoms<<<NBLOCK(nAtoms), PERBLOCK>>>(
                 state->gpd.xs(activeIdx), state->gpd.xsMoved(send),
                 state->gpd.vs(activeIdx), state->gpd.vsMoved(send),
@@ -649,50 +657,86 @@ void GridGPU::handleTransferValues(GPUArrayPair<uint> &szMoved, uint szMaxMoved,
                 state->gpd.qs(activeIdx), state->gpd.qsMoved(send),
                 idxsMoved.getDevData(), nAtoms, szMoved(send), szMaxMoved,
                 partition);
+
+    idxsMoved.dataToHost();
     // if we recv more atoms than we send, then add them to the end
     // *** notice the size of idxsMoved is szTotalMax ***
     int end = nAtoms;
     for (uint i = szTotalSend; i < szTotalRecv; ++i) {
+        std::cout << "send < recv" << std::endl;
         idxsMoved.h_data[i] = end++;
     }
     idxsMoved.dataToDevice();
 
     // update number of atoms as above, so idxsMoved makes sense
+    std::cout << "nAtoms before resize: " << nAtoms;
     nAtoms += (szTotalRecv - szTotalSend);
+    std::cout << "; after: " << nAtoms << std::endl;
     // TODO: take care of this size change
 
-    std::cout << "reallocating if nAtoms got too big" << std::endl;
     // reallocate atoms if necessary
     // TODO: make helper of GpuArrayPair, this is awful
     if(nAtoms > (int)state->gpd.xs.size()) {
+        std::cout << "reallocating if nAtoms got too big: "
+                  << nAtoms << " vs " << (int)state->gpd.xs.size();
+
+        std::cout << std::endl << "  * making temp";
         auto xsTemp = GPUArrayPair<float4>(nAtoms);
+        std::cout << std::endl << "  * assign activeIdx";
         xsTemp.activeIdx = activeIdx;
-        state->gpd.xs.copyToDeviceArray(xsTemp(activeIdx));
-        state->gpd.xs = std::move(xsTemp);
+        std::cout << std::endl << "  * copy dev array";
+        state->gpd.xs.copyToDeviceArray((void *)xsTemp(activeIdx));
+        xsTemp.dataToHost();
+        std::cout << std::endl << "  * move temp to member" << std::endl;
+        state->gpd.xs = xsTemp;
+        /*std::cout << "    - xs[0] ("
+                  << state->gpd.xs.h_data[0].x << ","
+                  << state->gpd.xs.h_data[0].y << ","
+                  << state->gpd.xs.h_data[0].z << "); "
+                  << "xsTemp[0] ("
+                  << xsTemp.h_data[0].x << ","
+                  << xsTemp.h_data[0].y << ","
+                  << xsTemp.h_data[0].z << ") after"
+                  << std::endl;*/
+        state->gpd.xs.dataToHost();
+
+        auto xsLastBuildTemp = GPUArrayDeviceGlobal<float4>(nAtoms);
+        xsLastBuild.copyToDeviceArray(xsLastBuildTemp.data());
+        xsLastBuild = xsLastBuildTemp;
+        std::cout << "xs done... ";
+
         auto vsTemp = GPUArrayPair<float4>(nAtoms);
         vsTemp.activeIdx = activeIdx;
         state->gpd.vs.copyToDeviceArray(vsTemp(activeIdx));
-        state->gpd.vs = std::move(vsTemp);
+        state->gpd.vs = vsTemp;
+        std::cout << "vs done... ";
+
         auto fsTemp = GPUArrayPair<float4>(nAtoms);
         fsTemp.activeIdx = activeIdx;
         state->gpd.fs.copyToDeviceArray(fsTemp(activeIdx));
-        state->gpd.fs = std::move(fsTemp);
+        state->gpd.fs = fsTemp;
+        std::cout << "fs done... ";
+
         auto idsTemp = GPUArrayPair<uint>(nAtoms);
         idsTemp.activeIdx = activeIdx;
         state->gpd.ids.copyToDeviceArray(idsTemp(activeIdx));
-        state->gpd.ids = std::move(idsTemp);
+        state->gpd.ids = idsTemp;
+        std::cout << "ids done... ";
+        /*
         auto qsTemp = GPUArrayPair<float>(nAtoms);
         qsTemp.activeIdx = activeIdx;
         state->gpd.qs.copyToDeviceArray(qsTemp(activeIdx));
-        state->gpd.qs = std::move(qsTemp);
+        state->gpd.qs = qsTemp;
+        std::cout << "qs done... ";
+        */
     }
 
     std::cout << "about to sendrecv atoms" << std::endl;
     // send and receive data
-    for (uint16_t idx = 0; idx < partition.adjSize; ++idx) {
-
-        uint transferIdx = partition.adjRanks.h_data[idx] * szMaxMoved;
+    for (uint16_t idx = 0; idx < partition.adjSize; ++idx)
+    {
         int rankOther = partition.adjRanks.h_data[idx];
+        uint transferIdx = rankOther * szMaxMoved;
 
         szMoved.dataToHost(send);
         uint szSend = szMoved.h_data[idx];
@@ -700,6 +744,22 @@ void GridGPU::handleTransferValues(GPUArrayPair<uint> &szMoved, uint szMaxMoved,
         uint szRecv = szMoved.h_data[idx];
         uint szSendf4 = szSend * sizeof(float4)/sizeof(float);
         uint szRecvf4 = szRecv * sizeof(float4)/sizeof(float);
+
+        state->gpd.xsMoved.dataToHost();
+        if (szSend > 0) {
+            std::cout << "sending actual data with adj idx " << idx
+                      << " and transfer idx " << transferIdx
+                      << ": ("
+                      << state->gpd.xsMoved.h_data[transferIdx + 0].x << ","
+                      << state->gpd.xsMoved.h_data[transferIdx + 0].y << ","
+                      << state->gpd.xsMoved.h_data[transferIdx + 0].z << "); "
+                      << std::endl;
+        }
+        if (szRecv > 0) {
+            std::cout << "recving actual data with adj idx " << idx
+                      << " and transfer idx " << transferIdx
+                      << std::endl;
+        }
 
         MPI_Sendrecv_gpu(state->gpd.xsMoved(send) + transferIdx,
                          state->gpd.xsMoved(recv) + transferIdx,
@@ -717,11 +777,10 @@ void GridGPU::handleTransferValues(GPUArrayPair<uint> &szMoved, uint szMaxMoved,
                          state->gpd.idsMoved(recv) + transferIdx,
                          szSend, szRecv, MPI_UNSIGNED, rankOther);
         cudaDeviceSynchronize();
-        MPI_Sendrecv_gpu(state->gpd.qsMoved(send) + transferIdx,
+        /*MPI_Sendrecv_gpu(state->gpd.qsMoved(send) + transferIdx,
                          state->gpd.qsMoved(recv) + transferIdx,
                          szSend, szRecv, MPI_FLOAT, rankOther);
-        cudaDeviceSynchronize();
-
+        cudaDeviceSynchronize();*/
     }
 
     std::cout << "copying recv atoms" << std::endl;
@@ -734,6 +793,17 @@ void GridGPU::handleTransferValues(GPUArrayPair<uint> &szMoved, uint szMaxMoved,
                 state->gpd.ids(activeIdx), state->gpd.idsMoved(recv),
                 state->gpd.qs(activeIdx), state->gpd.qsMoved(recv),
                 idxsMoved.getDevData(), szTotalRecv);
+    cudaDeviceSynchronize();
+
+    std::cout << "atoms after recv: " << std::endl;
+    state->gpd.xs.dataToHost();
+    for (int i = 0; i < nAtoms; ++i) {
+        std::cout << "  * xs[" << i << "] ("
+                  << state->gpd.xs.h_data[i].x << ","
+                  << state->gpd.xs.h_data[i].y << ","
+                  << state->gpd.xs.h_data[i].z << "); "
+                  << std::endl;
+    }
 }
 
 
@@ -748,9 +818,9 @@ void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild)
     }
 
     Vector nsV = Vector(make_float3(ns));
-    int nAtoms = state->atoms.size();
     int activeIdx = state->gpd.activeIdx();
     BoundsGPU bounds = state->boundsGPU;
+    int &nAtoms = state->gpd.nAtoms;
 
     // DO ASYNC COPY TO xsLastBuild
     // FINISH FUTURE WHICH SETS REBUILD FLAG BY NOW PLEASE
@@ -763,6 +833,7 @@ void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild)
     cudaDeviceSynchronize();
 
     // std::cout << "I AM BUILDING" << std::endl;
+    state->gpd.xs.dataToHost();
     std::cout << "oobInDir tests of moving atom ("
               << state->gpd.xs.h_data[0].x << ","
               << state->gpd.xs.h_data[0].y << ","
@@ -771,6 +842,10 @@ void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild)
                                 make_float3(state->gpd.xs.h_data[0]))
               << std::endl;
     if (buildFlag.h_data[0] or true) {
+        int myrank;
+        MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+        std::cout << "rank " << myrank << " building with " << nAtoms << " atoms"
+                  << std::endl;
 
         float3 ds_orig = ds;
         float3 os_orig = os;
@@ -818,17 +893,19 @@ void GridGPU::periodicBoundaryConditions(float neighCut, bool forceBuild)
         if (    szMaxMoved * partition.adjSize > state->gpd.xsMoved.size() ||
                 szMaxMoved * partition.adjSize < state->gpd.xsMoved.size() / 2) {
             uint szNew = szMaxMoved * partition.adjSize * 1.5;
+            std::cout << "reallocating moved arrays, new size is " << szNew << std::endl;
             state->gpd.xsMoved = GPUArrayPair<float4>(szNew);
             state->gpd.vsMoved = GPUArrayPair<float4>(szNew);
             state->gpd.fsMoved = GPUArrayPair<float4>(szNew);
             state->gpd.idsMoved = GPUArrayPair<uint>(szNew);
-            state->gpd.qsMoved = GPUArrayPair<float>(szNew);
+            //state->gpd.qsMoved = GPUArrayPair<float>(szNew);
         }
 
         // send/recv moved atoms, makes MPI calls
         handleTransferValues(szMoved, szMaxMoved,
                              szTotalSend, szTotalRecv, szTotalMax);
 
+        std::cout << "no longer in handleTransferValues" << std::endl;
         // TODO: ghosts
         // 1. count ghosts atoms/cell, store in array
         //    (len: cells/dim * cells/dim * cells/dim * cells/dim,

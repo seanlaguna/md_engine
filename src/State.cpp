@@ -385,10 +385,24 @@ bool State::prepareForRun()
     std::cout << "posHead: " << posHead << ", posTail: " << posTail << std::endl;
     auto head = std::next(atoms.begin(), posHead);
     auto tail = std::next(atoms.begin(), posTail);
+
+    if (rank == nRanks-1) {
+        std::cout << "head->pos[0]: " << head->pos[0]
+                  << "; head-1->pos[0]: " << (head-1)->pos[0]
+                  << "; head+1->pos[0]: " << (head+1)->pos[0]
+                  << std::endl;
+    }
+    if (rank == 0) {
+        std::cout << "tail->pos[0]: " << tail->pos[0]
+                  << "; tail-1->pos[0]: " << (tail-1)->pos[0]
+                  << "; tail+1->pos[0]: " << (tail+1)->pos[0]
+                  << std::endl;
+    }
+
     float boundsLo = (rank == 0) ? (bounds.lo[0])  \
-                                 : (head->pos[0] + (head+1)->pos[0]) / 2;
+                                 : ((head-1)->pos[0] + head->pos[0]) / 2;
     float boundsHi = (rank == nRanks-1) ? (bounds.lo[0] + bounds.rectComponents[0])  \
-                                 : (tail->pos[0] + (tail+1)->pos[0]) / 2;
+                                 : ((tail-1)->pos[0] + tail->pos[0]) / 2;
 
     std::cout << "local bounds in x: " << boundsLo << " " << boundsHi << std::endl;
     if (rank != nRanks-1) { atoms.erase(tail, atoms.end()); }
@@ -399,18 +413,18 @@ bool State::prepareForRun()
         std::exit(EXIT_FAILURE);
     }
 
-    int nAtoms = atoms.size();
+    gpd.nAtoms = atoms.size();
 
     // fixes have already prepared by the time the integrator calls this prepare
     std::vector<float4> xs_vec, vs_vec, fs_vec;
     std::vector<uint> ids;
     std::vector<float> qs;
 
-    xs_vec.reserve(nAtoms);
-    vs_vec.reserve(nAtoms);
-    fs_vec.reserve(nAtoms);
-    ids.reserve(nAtoms);
-    qs.reserve(nAtoms);
+    xs_vec.reserve(gpd.nAtoms);
+    vs_vec.reserve(gpd.nAtoms);
+    fs_vec.reserve(gpd.nAtoms);
+    ids.reserve(gpd.nAtoms);
+    qs.reserve(gpd.nAtoms);
 
     for (const auto &a : atoms) {
         xs_vec.push_back(make_float4(a.pos[0], a.pos[1], a.pos[2],
@@ -454,11 +468,11 @@ bool State::prepareForRun()
     float maxRCut = getMaxRCut();
     initializeGrid();
 
-    gpd.xsBuffer = GPUArrayGlobal<float4>(nAtoms);
-    gpd.vsBuffer = GPUArrayGlobal<float4>(nAtoms);
-    gpd.fsBuffer = GPUArrayGlobal<float4>(nAtoms);
-    gpd.idsBuffer = GPUArrayGlobal<uint>(nAtoms);
-    gpd.perParticleEng = GPUArrayGlobal<float>(nAtoms);
+    gpd.xsBuffer = GPUArrayGlobal<float4>(gpd.nAtoms);
+    gpd.vsBuffer = GPUArrayGlobal<float4>(gpd.nAtoms);
+    gpd.fsBuffer = GPUArrayGlobal<float4>(gpd.nAtoms);
+    gpd.idsBuffer = GPUArrayGlobal<uint>(gpd.nAtoms);
+    gpd.perParticleEng = GPUArrayGlobal<float>(gpd.nAtoms);
 
     // gpupar local bounds; sides are relative to lo, so need to correct
     BoundsGPU boundsLocalGPU = bounds.makeGPU();
